@@ -9,6 +9,7 @@
 #include "PowerManager.h"
 #include "ui_Power.h"
 #include "WeatherManager.h"
+#include "uiWeatherScreen.h"
 
 ///////////////////// DEFINITIONS //////////////////
 
@@ -79,6 +80,11 @@ lv_obj_t * action_container;
 lv_obj_t * bt_device_list;
 lv_obj_t *wifi_switch;
 //lv_obj_t *wifi_list;
+
+// SCREEN: ui_WeatherScreen
+void ui_WeatherScreen_screen_init(void);
+lv_obj_t * ui_WeatherScreen;
+
 
 ///////////////////// TEST LVGL SETTINGS ////////////////////
 /* #if LV_COLOR_DEPTH != 16
@@ -210,6 +216,7 @@ void ui_init(void)
     ui_MusicControls_screen_init();
     ui_Settings_screen_init();
     ui_Power_screen_init();
+    ui_WeatherScreen_screen_init();
     ui____initial_actions0 = lv_obj_create(NULL);
     lv_disp_load_scr(ui_MainScreen);
 

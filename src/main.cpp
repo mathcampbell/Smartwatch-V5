@@ -586,6 +586,9 @@ if (weather_job_active && wifi_manager_state() == WIFI_MGR_FAILED) {
     // Optional: ensure WiFi is off after failure too
     wifi_manager_disconnect(true);
 }
+
+ui_WeatherScreen_tick();
+
    
 //   delay(5);
 

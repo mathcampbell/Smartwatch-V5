@@ -12,7 +12,8 @@
 #include <NTPClient.h>
 #include <HTTPClient.h>
 #include "esp_heap_caps.h"
-
+// Tide imports
+#include "TideService.h"
 
 // DEFINES //
 
@@ -23,7 +24,7 @@
 // VARIABLES //
 
 
-
+static volatile bool s_tideCurveDirty = false;
 static volatile bool g_weatherUpdated = false;
 static volatile bool g_ntpSynced = false;
 static time_t g_ntpEpoch = 0;
@@ -44,12 +45,42 @@ const long utcOffsetInSeconds = 0;      // Adjust as necessary for your timezone
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, ntpServer, utcOffsetInSeconds);
 
+// Stormglass API key – put your real key here or pull from settings later
+static const char* STORMGLASS_API_KEY = "c6666db4-fe38-11f0-b30d-0242ac120004-c6666e36-fe38-11f0-b30d-0242ac120004";
+
+
+// Tide service + state – reuse same lat/long as weather
+static TideService g_tideService(STORMGLASS_API_KEY,
+                                 latitude.toDouble(),
+                                 longitude.toDouble());
+static TideState g_tideState;
 
 
 // Main part starts here //
 OW_Weather ow; // Weather forecast library instance
 
 WeatherData currentWeatherData; // Global or instance variable
+
+static void log_heap_detailed(const char* tag)
+{
+    uint32_t freeDefault      = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
+    uint32_t largestDefault   = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
+
+    uint32_t freeInternal     = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    uint32_t largestInternal  = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+
+    uint32_t freePsram        = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    uint32_t largestPsram     = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+
+    Serial.printf("[%s]\n", tag);
+    Serial.printf("  DEFAULT heap:   free=%u, largest=%u\n",
+                  (unsigned)freeDefault, (unsigned)largestDefault);
+    Serial.printf("  INTERNAL heap:  free=%u, largest=%u\n",
+                  (unsigned)freeInternal, (unsigned)largestInternal);
+    Serial.printf("  PSRAM:          free=%u, largest=%u\n",
+                  (unsigned)freePsram, (unsigned)largestPsram);
+}
+
 
 bool WeatherUpdate()
 {
@@ -76,9 +107,37 @@ bool WeatherUpdate()
         Serial.printf("[Weather] Time synchronized with NTP: %s\n", ctime(&currentTime));
     }
 
+   
+
+    log_heap_detailed("TideService: before HTTPS");
+
+
+    // ---- tide logic ----
+    constexpr uint16_t TIDE_HORIZON_HOURS = 48;
+    TideUpdateResult tr = g_tideService.update(TIDE_HORIZON_HOURS, g_tideState);
+
+    switch (tr) {
+        case TideUpdateResult::Ok:
+            Serial.println("[Tide] Tide data updated.");
+             WeatherManager_MarkTideCurveDirty();   // ✅ tell the UI "new curve ready"
+            break;
+        case TideUpdateResult::SkippedRateLimit:
+            // Normal; we’re still inside the 3h cooldown
+            break;
+        case TideUpdateResult::TimeNotReady:
+            Serial.println("[Tide] Time not ready yet, skipping tide update.");
+            break;
+        case TideUpdateResult::NetworkError:
+        case TideUpdateResult::HttpError:
+        case TideUpdateResult::ParseError:
+            Serial.printf("[Tide] Tide update failed (%d)\n", (int)tr);
+            break;
+    }
+    // ---- tide logic ends ----
+
+
     // ---- your existing weather logic ----
     initializeWeatherData();
-
     // If your initializeWeatherData() doesn’t actually fetch new weather, and you have
     // a separate fetch function, call it here instead.
     return true;
@@ -556,4 +615,59 @@ static bool fetchCurrentWeatherHTTP(WeatherData& out)
 const WeatherData& WeatherGet()
 {
     return currentWeatherData;
+}
+
+const TideState& TideGet()
+{
+    return g_tideState;
+}
+
+// PUBLIC MODEL ACCESSOR FOR TIDE CURVE (no UI here)
+bool WeatherManager_GetTideCurve(float*   heights,
+                                 uint16_t maxSamples,
+                                 uint16_t& outCount,
+                                 time_t&   outFirstSampleUtc,
+                                 uint32_t& outStepSeconds)
+{
+    if (!heights || maxSamples < 2) {
+        Serial.println("[WeatherManager] GetTideCurve: invalid buffer");
+        return false;
+    }
+
+    if (g_tideState.count < 2) {
+        Serial.printf("[WeatherManager] GetTideCurve: not enough extremes (%u)\n",
+                      (unsigned)g_tideState.count);
+        return false;
+    }
+
+    bool ok = TideBuildSampleCurve(g_tideState,
+                                   heights,
+                                   maxSamples,
+                                   outCount,
+                                   outFirstSampleUtc,
+                                   outStepSeconds);
+    if (!ok) {
+        Serial.println("[WeatherManager] GetTideCurve: TideBuildSampleCurve failed");
+        return false;
+    }
+
+    Serial.printf("[WeatherManager] GetTideCurve: count=%u, step=%u s\n",
+                  (unsigned)outCount,
+                  (unsigned)outStepSeconds);
+
+
+    return true;
+}
+
+void WeatherManager_MarkTideCurveDirty()
+{
+    s_tideCurveDirty = true;
+}
+
+// Returns true exactly once per update (and clears the flag)
+bool WeatherManager_TakeTideCurveDirtyFlag()
+{
+    if (!s_tideCurveDirty) return false;
+    s_tideCurveDirty = false;
+    return true;
 }

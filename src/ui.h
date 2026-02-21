@@ -71,7 +71,7 @@ extern lv_obj_t * bt_device_list;
 extern lv_obj_t *wifi_switch;
 extern lv_obj_t *wifi_list;
 
-LV_IMG_DECLARE(watch360);    // assets/watchface.png
+//LV_IMG_DECLARE(watch360);    // assets/watchface.png
 LV_IMG_DECLARE(hour_hand);    // assets/hour_hand.png
 LV_IMG_DECLARE(minute_hand);    // assets/minute_hand.png
 LV_IMG_DECLARE(second_hand);    // assets/secondHand.png

@@ -214,7 +214,7 @@ void PowerManager::enterLightSleep()
 
  DisplayManager::instance().setScreenOn(true);
   // 4) On wake: re-enable backlight (and anything else you turned off)
-  DisplayManager::instance().setBrightness(255);   // or whatever you store
+ // DisplayManager::instance().setBrightness(255);   // or whatever you store
 }
 
 void PowerManager::restart()

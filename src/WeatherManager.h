@@ -7,6 +7,7 @@
 #include <OpenWeather.h>
 #include <Time.h>
 #include <stdbool.h>
+#include "tide.h"
 
 
 
@@ -50,5 +51,17 @@ bool WeatherConsumeNtpSync(time_t *outEpoch);
 static bool fetchCurrentWeatherHTTP(WeatherData& out);
 
 String strTime(time_t unixTime);
+
+// Tides
+const TideState& TideGet();   // access for UI, etc
+bool WeatherManager_GetTideCurve(float*   heights,
+                                 uint16_t maxSamples,
+                                 uint16_t& outCount,
+                                 time_t&   outFirstSampleUtc,
+                                 uint32_t& outStepSeconds);
+
+void WeatherManager_MarkTideCurveDirty();      // called when new tide data arrives
+bool WeatherManager_TakeTideCurveDirtyFlag();  // UI polls this
+
 
 #endif // WEATHER_MANAGER_H

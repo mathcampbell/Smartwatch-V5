@@ -12,7 +12,7 @@ bool loadSettingsDataFromFile(const char* filePath, SettingsData& settings)
         return false;
     }
 
-    DynamicJsonDocument doc(1024); // Adjust size as needed
+    DynamicJsonDocument doc(2048); // Adjust size as needed
 
     DeserializationError error = deserializeJson(doc, file);
     if (error) {
@@ -25,7 +25,7 @@ bool loadSettingsDataFromFile(const char* filePath, SettingsData& settings)
     settings.wifi_ssd = doc["wifi_ssd"].as<String>();
     settings.wifi_pass = doc["wifi_pass"].as<String>();
     settings.weather_lat = doc["weather_lat"].as<String>();
-    settings.weather_long = doc["weather_lat"].as<String>();
+    settings.weather_long = doc["weather_long"].as<String>();
     settings.lastUpdate = doc["lastUpdate"].as<unsigned long>();
     settings.brightness_level = doc["brightness_level"].as<uint16_t>(); 
     settings.screen_dim_duration = doc["screen_dim_duration"].as<uint16_t>(); 
@@ -40,6 +40,7 @@ bool loadSettingsDataFromFile(const char* filePath, SettingsData& settings)
         wifiNetwork.password = network["password"].as<String>();
         settings.known_wifi_networks.push_back(wifiNetwork);
     }
+
 
     file.close();
     Serial.println("Setting data loaded successfully");
@@ -56,7 +57,7 @@ void saveSettingsDataToFile(const char* filePath, const SettingsData& settings)
         return;
     }
 
-    DynamicJsonDocument doc(512); // Adjust size as needed
+    DynamicJsonDocument doc(2048); // Adjust size as needed
 
     doc["wifi_ssd"] = settings.wifi_ssd;
     doc["wifi_pass"] = settings.wifi_pass;
@@ -78,6 +79,13 @@ void saveSettingsDataToFile(const char* filePath, const SettingsData& settings)
     if (serializeJson(doc, file) == 0) {
         Serial.println("Failed to write to file");
     }
+
+
+
+    if (serializeJson(doc, file) == 0) {
+        Serial.println("Failed to write to file");
+    }
+
 
     file.close();
     Serial.println("Weather data saved successfully");

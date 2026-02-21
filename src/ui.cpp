@@ -83,7 +83,7 @@ lv_obj_t *wifi_switch;
 
 // SCREEN: ui_WeatherScreen
 void ui_WeatherScreen_screen_init(void);
-lv_obj_t * ui_WeatherScreen;
+//lv_obj_t * ui_WeatherScreen;
 
 
 ///////////////////// TEST LVGL SETTINGS ////////////////////

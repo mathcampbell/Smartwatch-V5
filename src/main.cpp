@@ -19,6 +19,16 @@
 #include "WiFiManager.h"
 #include <LittleFS.h>
 #include "ui_MainScreen.h"
+#include "uiWeatherScreen.h"
+#include "SettingsManager.h"
+#include "Tide.h"
+#include "TideService.h"
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
+#include "esp_heap_caps.h"
+
 
 //////////////////// DEFINITIONS ///////////////////////////////
 
@@ -66,6 +76,21 @@
 #define WIFI_SSID     "GraphicsForgeA"
 #define WIFI_PASSWORD "25137916"
 
+extern TideService g_tideService;
+
+//Adding a seperate task to stop it crashing out
+static TaskHandle_t lvglTaskHandle = nullptr;
+static SemaphoreHandle_t lvglMutex = nullptr;
+
+static inline void lvgl_lock()
+{
+  if(lvglMutex) xSemaphoreTake(lvglMutex, portMAX_DELAY);
+}
+static inline void lvgl_unlock()
+{
+  if(lvglMutex) xSemaphoreGive(lvglMutex);
+}
+
 
 // Create an instance of the Arduino_ESP32QSPI class
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
@@ -92,8 +117,8 @@ bool pmu_flag = false;
 bool adc_switch = false;
 
 lv_display_t *disp;
-lv_color_t *disp_draw_buf;
-lv_color_t *disp_draw_buf2;
+static lv_color_t *disp_draw_buf;
+static lv_color_t *disp_draw_buf2;
 
 uint32_t screenWidth;
 uint32_t screenHeight;
@@ -103,9 +128,20 @@ TouchDrvCSTXXX touch;
 int16_t x[5], y[5];
 bool isPressed = false;
 unsigned long lastInteractionTime = 0;
-static constexpr uint32_t SCREEN_DIM_TIMEOUT_MS = 30 * 1000;
-static constexpr uint32_t SLEEP_AFTER_MS = 60 * 1000;  // example 30s
+
+
+// These will be filled from SettingsManager once FS/settings are loaded
+static uint32_t SCREEN_DIM_TIMEOUT_MS = 30 * 1000;
+static uint32_t SLEEP_AFTER_MS       = 60 * 1000;  // fallback defaults
+
 bool isScreenDimmed = false;
+
+// Brightness derived from currentSettings.brightness_level (0–100%)
+static uint8_t g_fullBrightness = 255;   // what the user picked
+static uint8_t g_dimBrightness  = 50;    // dimmed value
+
+
+
 bool checkWeatherFlag = false;
 static unsigned long last_weather_update = 0;
 
@@ -120,33 +156,88 @@ void setFlag(void) {
   pmu_flag = true;
 }
 
+static void lvgl_task(void* pv)
+{
+  (void)pv;
+  for(;;) {
+    lvgl_lock();
+    lv_timer_handler();           // all drawing + image decode happens here
+    lvgl_unlock();
 
+    vTaskDelay(pdMS_TO_TICKS(5)); // ~200 Hz; LVGL will internally pace redraws
+  }
+}
 
 void notifyUserInteraction()
 {
     lastInteractionTime = millis();
-    Serial.println("User interaction detected");
 
     if (isScreenDimmed) {
-        DisplayManager::instance().setBrightness(255);
+        DisplayManager::instance().setBrightness(g_fullBrightness);
         isScreenDimmed = false;
     }
 }
 
-// LVGL v9 flush callback
+/* // LVGL v9 flush callback
 static void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 {
  const int32_t w = lv_area_get_width(area);
  const int32_t h = lv_area_get_height(area);
 
  uint16_t * pixels = (uint16_t *)px_map;
+  gfx->startWrite();
  #if (LV_COLOR_16_SWAP != 0)
   gfx->draw16bitBeRGBBitmap(area->x1, area->y1, pixels, w, h);
  #else
   gfx->draw16bitRGBBitmap(area->x1, area->y1, pixels, w, h);
   #endif
+  gfx->endWrite();
+  lv_display_flush_ready(disp);
+} */ // OLD VERSION DO NOT USE
+
+//////////////////////////////////////////
+
+
+static void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
+{
+  const int32_t w = lv_area_get_width(area);
+  const int32_t h = lv_area_get_height(area);
+
+  // Tune this. 16–32 lines is usually a sweet spot.
+  constexpr int32_t CHUNK_LINES = 20;
+
+  // Internal DMA bounce buffer (enough for full width × CHUNK_LINES)
+  static uint16_t *dma_buf = nullptr;
+  if(!dma_buf) {
+    dma_buf = (uint16_t*)heap_caps_malloc(466 * CHUNK_LINES * sizeof(uint16_t),
+                                         MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+    if(!dma_buf) {
+      // If this fails, drop CHUNK_LINES or handle error.
+      Serial.println("[LVGL] dma_buf alloc failed");
+      lv_display_flush_ready(disp);
+      return;
+    }
+  }
+
+  const uint16_t *src = (const uint16_t*)px_map;
+
+  gfx->startWrite();
+
+  for(int32_t y = 0; y < h; y += CHUNK_LINES) {
+    const int32_t lines = (y + CHUNK_LINES <= h) ? CHUNK_LINES : (h - y);
+    const int32_t count = w * lines;
+
+    // Copy into DMA-capable memory
+    memcpy(dma_buf, src + (y * w), count * sizeof(uint16_t));
+
+
+    gfx->draw16bitRGBBitmap(area->x1, area->y1 + y, dma_buf, w, lines);
+  }
+
+  gfx->endWrite();
   lv_display_flush_ready(disp);
 }
+
 
 uint32_t millis_cb(void)
 {
@@ -168,58 +259,46 @@ static void rounder_event_cb(lv_event_t *e)
     }
 }
 
+
+
 void lvgl_init_display()
 {
   lv_init();
-  Serial.println("LV_Init ran");
-
-  // If you're using LVGL 9's tick callback API, this is fine:
   lv_tick_set_cb(millis_cb);
 
   screenWidth  = gfx->width();
   screenHeight = gfx->height();
 
-  
-  // Use a PARTIAL draw buffer: e.g. 40 lines
-  const uint32_t buf_lines  = 60;
-  const uint32_t buf_pixels = (uint32_t)screenWidth * buf_lines;
-const uint32_t buf_bytes  = buf_pixels * sizeof(lv_color_t); // lv_color_t is 2 bytes if LV_COLOR_DEPTH=16
+// ---- LVGL draw buffer: SINGLE buffer, PARTIAL mode ----
+// Start with 80 lines. If WiFi ever fails to init, drop to 60.
+const uint32_t buf_lines = 160;  // try 160, then 200/240
+const uint32_t buf_bytes = (uint32_t)screenWidth * buf_lines * sizeof(lv_color_t);
 
-Serial.println("Calculating LVGL buffer sizes...");
+disp_draw_buf  = (lv_color_t*)heap_caps_malloc(buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+disp_draw_buf2 = NULL;
 
-
- // disp_draw_buf  = (lv_color_t *)heap_caps_malloc(buf_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
- // disp_draw_buf2 = (lv_color_t *)heap_caps_malloc(buf_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    disp_draw_buf  = (lv_color_t *)heap_caps_calloc(1, buf_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
-   // disp_draw_buf2 = (lv_color_t *)heap_caps_calloc(1, buf_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
-
- // if (!disp_draw_buf || !disp_draw_buf2) {
-   if (!disp_draw_buf) {   
-    while (true) {
-      Serial.println("LVGL disp_draw_buf allocate failed!");
-      delay(100);
-     }
-    
-  }
-
-
-
-  disp = lv_display_create(screenWidth, screenHeight);
-  lv_display_set_flush_cb(disp, my_disp_flush);
-
-  Serial.println("LVGL display flush set created");
-
-
-  // Give LVGL both buffers and use PARTIAL rendering
-  lv_display_set_buffers(disp,
-                         disp_draw_buf,
-                         NULL,
-                         buf_bytes,
-                         LV_DISPLAY_RENDER_MODE_PARTIAL);
-
-  Serial.println("LV_Init finished");
-
+if(!disp_draw_buf) {
+  Serial.println("[LVGL] disp_draw_buf alloc failed!");
+  while(true) delay(100);
 }
+
+Serial.printf("[LVGL] internal DMA free after buffers: %u bytes\n",
+              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
+
+disp = lv_display_create(screenWidth, screenHeight);
+lv_display_set_flush_cb(disp, my_disp_flush);
+
+lv_display_set_buffers(disp,
+                       disp_draw_buf,
+                       NULL,
+                       buf_bytes,
+                       LV_DISPLAY_RENDER_MODE_PARTIAL);
+
+Serial.println("[LVGL] display init done");
+}
+
+
+
 
 void init_touch()
 {
@@ -375,6 +454,8 @@ void update_battery_arc()
 }
 
 
+
+
 void setup() {
 
    Serial.begin(115200);
@@ -393,7 +474,37 @@ void setup() {
   Serial.println("[FS] LittleFS mount failed");
 } else {
   Serial.println("[FS] LittleFS mounted");
-}
+
+ // Load or create settings.json → fills global currentSettings
+    initializeSettingsData();
+
+    Serial.println("[Settings] Loaded settings:");
+    Serial.println("  wifi_ssd: " + currentSettings.wifi_ssd);
+    Serial.println("  weather_lat: " + currentSettings.weather_lat);
+    Serial.println("  weather_long: " + currentSettings.weather_long);
+
+     // --- Apply user settings ---
+
+  // Map settings.brightness_level (0–100) to 0–255 for the backlight
+  uint16_t lvl = currentSettings.brightness_level;
+  if (lvl > 100) lvl = 100;
+  g_fullBrightness = (uint8_t)((lvl * 255UL) / 100UL);
+
+  // Dimmed brightness: e.g. 25% of full, but not lower than 5
+  g_dimBrightness = (uint8_t)(g_fullBrightness / 4);
+  if (g_dimBrightness < 5) g_dimBrightness = 5;
+
+  // Timeouts from settings (values stored in seconds)
+  if (currentSettings.screen_dim_duration > 0) {
+      SCREEN_DIM_TIMEOUT_MS = (uint32_t)currentSettings.screen_dim_duration * 1000UL;
+  }
+  if (currentSettings.sleep_duration > 0) {
+      SLEEP_AFTER_MS = (uint32_t)currentSettings.sleep_duration * 1000UL;
+  }
+
+  // Apply the user brightness right away
+  DisplayManager::instance().setBrightness(g_fullBrightness);
+  }
 
   
   gfx->begin(30000000);
@@ -451,6 +562,31 @@ time_manager_begin();
 
 time_manager_bootstrap_system_time_from_rtc();
  checkWeatherFlag = true;
+
+   lvglMutex = xSemaphoreCreateMutex();
+  if(!lvglMutex) {
+    Serial.println("[LVGL] Failed to create mutex");
+    while(true) delay(100);
+  }
+
+  // Big stack is the key: TJPGD decode + draw can be stack-hungry.
+  // 16384 is usually enough; if you still see canary trips, go 20480.
+  BaseType_t ok = xTaskCreatePinnedToCore(
+      lvgl_task,
+      "lvgl",
+      16384,          // stack bytes
+      nullptr,
+      2,              // priority
+      &lvglTaskHandle,
+      1               // core 1 (Arduino loopTask often runs core 1 too; either is fine)
+  );
+
+  if(ok != pdPASS) {
+    Serial.println("[LVGL] Failed to create lvgl task");
+    while(true) delay(100);
+  }
+
+Serial.println("[LVGL] LVGL task started");
     
 Serial.println("Setup finished");
 
@@ -459,139 +595,136 @@ Serial.println("Setup finished");
 }
 
 void loop() {
-   lv_timer_handler(); /* let the GUI do its work */
-    
   static bool weather_job_active = false;
-static uint32_t weather_job_started_ms = 0;
-static bool weather_ran_once = false;
+  static uint32_t weather_job_started_ms = 0;
+  static bool weather_ran_once = false;
 
-wifi_manager_tick();
-
-  //Serial.println("Running Loop");
+  wifi_manager_tick();
 
   unsigned long currentTime = millis();
 
-  if (!isScreenDimmed &&
-    millis() - lastInteractionTime > SCREEN_DIM_TIMEOUT_MS)
-{
-    Serial.println("Dimming screen due to inactivity");
+  if (!isScreenDimmed && millis() - lastInteractionTime > SCREEN_DIM_TIMEOUT_MS) {
+  //  Serial.println("Dimming screen due to inactivity");
     DisplayManager::instance().fadeTo(50, 300);
     isScreenDimmed = true;
-}
+  }
 
+  // If DisplayManager touches LVGL internally, keep it locked
+  lvgl_lock();
+  DisplayManager::instance().tick();
+  lvgl_unlock();
 
-DisplayManager::instance().tick();
+PowerManager::instance().tick();
 
-  PowerManager::instance().tick();
+if (PowerManager::instance().consumePkeyShortPressed()) {
+    // Go to light sleep; returns here after wake
+    PowerManager::instance().enterLightSleep();
 
-  if (PowerManager::instance().consumePkeyShortPressed()) {
-    PowerManager::instance().enterLightSleep();   // we’ll add this next
-   
+    // After wake:
+    lastInteractionTime = millis();
+    DisplayManager::instance().setBrightness(g_fullBrightness);
+
+    // Force a full LVGL redraw so the clock hands etc. don't leave ghosts
+    lvgl_lock();
+    lv_obj_invalidate(lv_screen_active());   // LVGL 9: invalidate full active screen
+    lvgl_unlock();
 }
 
 if (PowerManager::instance().consumePkeyLongPressed()) {
-    // switch screen here
-     lv_scr_load(ui_Power);
+    lvgl_lock();
+    lv_scr_load(ui_Power);
+    lvgl_unlock();
 }
 
-   if (millis() - lastInteractionTime > SLEEP_AFTER_MS) {
-    // Enter sleep; wakes on touch INT
+if (millis() - lastInteractionTime > SLEEP_AFTER_MS) {
+    // Inactivity-based sleep
     PowerManager::instance().enterLightSleep();
 
-    // We just woke up (touch caused wake). Treat that as interaction.
+    // After wake:
     lastInteractionTime = millis();
+    DisplayManager::instance().setBrightness(g_fullBrightness);
 
-    // If you want, restore UI state / redraw / etc here.
+    lvgl_lock();
+    lv_obj_invalidate(lv_screen_active());
+    lvgl_unlock();
+}
+
+  // Battery UI update (likely LVGL)
+  static uint32_t lastBattUiMs = 0;
+  const uint32_t now = millis();
+  if (now - lastBattUiMs >= 1000) {
+    lastBattUiMs = now;
+    lvgl_lock();
+    update_battery_arc();
+    lvgl_unlock();
   }
 
-
-
-//Update battery UI at a low rate (≈1 Hz is plenty)
-    static uint32_t lastBattUiMs = 0;
-    const uint32_t now = millis();
-
-    if (now - lastBattUiMs >= 1000) {
-        lastBattUiMs = now;
-        update_battery_arc();
-    }
-
-
-   // ---- WEATHER TRIGGER: start a job (non-blocking) ----
-if (!weather_job_active && ((currentTime - last_weather_update >= 360000) || checkWeatherFlag)) {
+  // ---- WEATHER TRIGGER ----
+  if (!weather_job_active && ((currentTime - last_weather_update >= 360000) || checkWeatherFlag)) {
     checkWeatherFlag = false;
-
     weather_job_active = true;
     weather_ran_once = false;
     weather_job_started_ms = millis();
-
-    // Start 30s connection attempt (returns immediately)
     wifi_manager_start_connect(WIFI_SSID, WIFI_PASSWORD, 30000);
-}
+  }
 
-// ---- WIFI LABEL UI: reflect current state (non-blocking) ----
-switch (wifi_manager_state()) {
+
+  // ---- WIFI LABEL UI (LVGL!) ----
+  lvgl_lock();
+  switch (wifi_manager_state()) {
     case WIFI_MGR_CONNECTING: {
-        const bool on = ((millis() / 400) % 2) == 0; // blink
-        lv_obj_set_style_text_color(ui_WiFiLabel,
-            lv_color_hex(on ? 0x41C7FF : 0x005578),
-            LV_PART_MAIN | LV_STATE_DEFAULT);
-        break;
+      const bool on = ((millis() / 400) % 2) == 0;
+      lv_obj_set_style_text_color(ui_WiFiLabel,
+          lv_color_hex(on ? 0x41C7FF : 0x005578),
+          LV_PART_MAIN | LV_STATE_DEFAULT);
+      break;
     }
     case WIFI_MGR_CONNECTED:
-        lv_obj_set_style_text_color(ui_WiFiLabel, lv_color_hex(0x41C7FF), LV_PART_MAIN | LV_STATE_DEFAULT);
-        break;
-
+      lv_obj_set_style_text_color(ui_WiFiLabel, lv_color_hex(0x41C7FF), LV_PART_MAIN | LV_STATE_DEFAULT);
+      break;
     default:
-        lv_obj_set_style_text_color(ui_WiFiLabel, lv_color_hex(0x005578), LV_PART_MAIN | LV_STATE_DEFAULT);
-        break;
-}
+      lv_obj_set_style_text_color(ui_WiFiLabel, lv_color_hex(0x005578), LV_PART_MAIN | LV_STATE_DEFAULT);
+      break;
+  }
+  lvgl_unlock();
 
-// ---- WEATHER JOB: when connected, run once ----
-if (weather_job_active && wifi_manager_is_connected() && !weather_ran_once) {
+  // ---- WEATHER JOB ----
+  if (weather_job_active && wifi_manager_is_connected() && !weather_ran_once) {
     weather_ran_once = true;
 
     if (WeatherUpdate()) {
-    const WeatherData& wd = WeatherGet();
-    Serial.println("[Main] Applying weather to UI...");
-    ui_mainscreen_apply_weather(wd.id, wd.temperature.c_str());
-}
+      const WeatherData& wd = WeatherGet();
+      Serial.println("[Main] Applying weather to UI...");
 
-    // If NTP synced, decide whether to update RTC
-    time_t ntpEpoch;
-    if (WeatherConsumeNtpSync(&ntpEpoch)) {
-        time_t rtcEpoch;
-        const bool rtcOk = time_manager_read_rtc_epoch(&rtcEpoch);
-        const long tol = 5;
-
-        if (!rtcOk || labs((long)(ntpEpoch - rtcEpoch)) > tol) {
-            time_manager_write_rtc_from_system_time();
-        }
+      lvgl_lock();
+      ui_mainscreen_apply_weather(wd.id, wd.temperature.c_str());
+      lvgl_unlock();
     }
 
-    // Power down WiFi after the job (your current policy)
+    time_t ntpEpoch;
+    if (WeatherConsumeNtpSync(&ntpEpoch)) {
+      time_t rtcEpoch;
+      const bool rtcOk = time_manager_read_rtc_epoch(&rtcEpoch);
+      const long tol = 5;
+      if (!rtcOk || labs((long)(ntpEpoch - rtcEpoch)) > tol) {
+        time_manager_write_rtc_from_system_time();
+      }
+    }
+
     wifi_manager_disconnect(true);
-
-
-
-
     last_weather_update = currentTime;
     weather_job_active = false;
-}
+  }
 
-// ---- WEATHER JOB: if WiFi failed or timed out, end job without blocking ----
-if (weather_job_active && wifi_manager_state() == WIFI_MGR_FAILED) {
-    // Stop trying until the next scheduled interval (or implement backoff if you like)
-   // last_weather_update = currentTime;
+  if (weather_job_active && wifi_manager_state() == WIFI_MGR_FAILED) {
     weather_job_active = false;
-    // Optional: ensure WiFi is off after failure too
     wifi_manager_disconnect(true);
+  }
+
+  // Weather screen tick touches LVGL (image + labels)
+  lvgl_lock();
+  ui_WeatherScreen_tick();
+  lvgl_unlock();
 }
 
-ui_WeatherScreen_tick();
-
-   
-//   delay(5);
-
-
-}
 

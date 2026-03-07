@@ -899,18 +899,18 @@
     #define LV_FS_MEMFS_LETTER '\0'     /**< Set an upper-case driver-identifier letter for this driver (e.g. 'A'). */
 #endif
 
+/** API for LittleFs. */
+#define LV_USE_FS_LITTLEFS 0
+#if LV_USE_FS_LITTLEFS
+    #define LV_FS_LITTLEFS_LETTER '\0'  /**< Set an upper-case driver-identifier letter for this driver (e.g. 'A'). */
+    #define LV_FS_LITTLEFS_PATH ""      /**< Set the working directory. File/directory paths will be appended to it. */
+#endif
+
 /** API for Arduino LittleFs. */
 #define LV_USE_FS_ARDUINO_ESP_LITTLEFS 1
 #if LV_USE_FS_ARDUINO_ESP_LITTLEFS
     #define LV_FS_ARDUINO_ESP_LITTLEFS_LETTER 'A'
     #define LV_FS_ARDUINO_ESP_LITTLEFS_PATH ""  /**< Empty: paths like /lvgl/img/foo.png are used as-is within LittleFS */
-#endif
-
-/** API for Arduino LittleFs. */
-#define LV_USE_FS_ARDUINO_ESP_LITTLEFS 0
-#if LV_USE_FS_ARDUINO_ESP_LITTLEFS
-    #define LV_FS_ARDUINO_ESP_LITTLEFS_LETTER '\0'  /**< Set an upper-case driver-identifier letter for this driver (e.g. 'A'). */
-    #define LV_FS_ARDUINO_ESP_LITTLEFS_PATH ""      /**< Set the working directory. File/directory paths will be appended to it. */
 #endif
 
 /** API for Arduino Sd. */

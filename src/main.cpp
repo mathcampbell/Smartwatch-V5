@@ -101,6 +101,7 @@ Arduino_GFX *gfx = new Arduino_CO5300(
   bus,
   LCD_RST_PIN /* RST */,
   0 /* rotation */,
+  false,
   LCD_WIDTH,
   LCD_HEIGHT,
   6 /* col_offset1 */,

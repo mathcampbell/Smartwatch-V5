@@ -32,8 +32,9 @@
 
 //////////////////// DEFINITIONS ///////////////////////////////
 
-#define I2C_SCL 14
-#define I2C_SDA 15
+// NB: Some board revisions use pins 14 for SCL & 15 for SDA
+#define I2C_SCL 10
+#define I2C_SDA 11
 #define TCA9554_ADDRESS 0x20  // I2C address for the IO expander
 
 #define FORMAT_LITTLEFS_IF_FAILED true

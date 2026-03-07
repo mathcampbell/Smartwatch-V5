@@ -5,9 +5,9 @@
 #include <WiFi.h>
 #include <JSON_Decoder.h>
 #include <OpenWeather.h>
-#include <Time.h>
+#include <time.h>
 #include <stdbool.h>
-#include "tide.h"
+#include "Tide.h"
 
 
 

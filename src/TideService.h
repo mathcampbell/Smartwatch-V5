@@ -1,7 +1,7 @@
 #pragma once
 
 #include <time.h>
-#include "tide.h"
+#include "Tide.h"
 
 enum class TideUpdateResult {
     Ok,

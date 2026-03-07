@@ -13,7 +13,7 @@
 
 static constexpr const char* PREF_NS          = "tide";
 static constexpr const char* KEY_LAST_FETCH   = "lastFetchUtc";
-static constexpr time_t      TIME_VALID_CUTOFF = 1'600'000'000; // ~2020
+static constexpr time_t      TIME_VALID_CUTOFF = 1600000000; // ~2020
 
 // How many samples we push into the UI (must be <= TIDE_MAX_SAMPLES in ui_MainScreen.cpp)
 static constexpr uint16_t TIDE_UI_MAX_SAMPLES = 96;

@@ -32,8 +32,8 @@
 
 //////////////////// DEFINITIONS ///////////////////////////////
 
-#define I2C_SCL 10
-#define I2C_SDA 11
+#define I2C_SCL 14
+#define I2C_SDA 15
 #define TCA9554_ADDRESS 0x20  // I2C address for the IO expander
 
 #define FORMAT_LITTLEFS_IF_FAILED true

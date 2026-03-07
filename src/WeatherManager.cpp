@@ -3,7 +3,7 @@
 #include <JSON_Decoder.h>
 #include <OpenWeather.h>
 #include <Arduino.h>
-#include <Time.h>
+#include <time.h>
 #include "WeatherManager.h"
 #include "ui.h"
 #include <ArduinoJson.h>

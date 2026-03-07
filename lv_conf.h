@@ -623,7 +623,7 @@
 #define LV_FONT_MONTSERRAT_42 0
 #define LV_FONT_MONTSERRAT_44 0
 #define LV_FONT_MONTSERRAT_46 0
-#define LV_FONT_MONTSERRAT_48 0
+#define LV_FONT_MONTSERRAT_48 1
 
 /* Demonstrate special features */
 #define LV_FONT_MONTSERRAT_28_COMPRESSED    0  /**< bpp = 3 */
@@ -907,10 +907,10 @@
 #endif
 
 /** API for Arduino LittleFs. */
-#define LV_USE_FS_ARDUINO_ESP_LITTLEFS 0
+#define LV_USE_FS_ARDUINO_ESP_LITTLEFS 1
 #if LV_USE_FS_ARDUINO_ESP_LITTLEFS
-    #define LV_FS_ARDUINO_ESP_LITTLEFS_LETTER '\0'  /**< Set an upper-case driver-identifier letter for this driver (e.g. 'A'). */
-    #define LV_FS_ARDUINO_ESP_LITTLEFS_PATH ""      /**< Set the working directory. File/directory paths will be appended to it. */
+    #define LV_FS_ARDUINO_ESP_LITTLEFS_LETTER 'A'
+    #define LV_FS_ARDUINO_ESP_LITTLEFS_PATH ""  /**< Empty: paths like /lvgl/img/foo.png are used as-is within LittleFS */
 #endif
 
 /** API for Arduino Sd. */

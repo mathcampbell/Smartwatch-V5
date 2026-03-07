@@ -32,6 +32,7 @@
 
 //////////////////// DEFINITIONS ///////////////////////////////
 
+// NB: Some board revisions use pins 14 for SCL & 15 for SDA
 #define I2C_SCL 10
 #define I2C_SDA 11
 #define TCA9554_ADDRESS 0x20  // I2C address for the IO expander
@@ -101,6 +102,7 @@ Arduino_GFX *gfx = new Arduino_CO5300(
   bus,
   LCD_RST_PIN /* RST */,
   0 /* rotation */,
+  false,
   LCD_WIDTH,
   LCD_HEIGHT,
   6 /* col_offset1 */,

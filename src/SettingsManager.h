@@ -5,7 +5,7 @@
 #include <WiFi.h>
 #include <JSON_Decoder.h>
 #include <Arduino.h>
-#include <Time.h>
+#include <time.h>
 #include "WeatherManager.h"
 #include <ArduinoJson.h>
 #include <LittleFS.h>

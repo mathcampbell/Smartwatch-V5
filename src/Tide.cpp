@@ -1,4 +1,4 @@
-#include "tide.h"
+#include "Tide.h"
 #include <Arduino.h>
 #include <math.h>
 

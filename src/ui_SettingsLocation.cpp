@@ -5,6 +5,7 @@
 #include "LocationGeocoder.h"
 #include "SettingsManager.h"
 #include "WeatherManager.h"
+#include "ui_KeyboardOverlay.h"
 
 static lv_obj_t* s_locationTextarea = nullptr;
 static lv_obj_t* s_resultsList = nullptr;
@@ -63,6 +64,7 @@ static void location_result_selected_cb(lv_event_t* e)
 
     saveSettingsDataToFile("/settings.json", currentSettings);
     WeatherManagerBegin();
+    ui_keyboard_hide();
 }
 
 static void populate_results_list()
@@ -86,11 +88,11 @@ static void location_textarea_event_cb(lv_event_t* e)
     lv_obj_t* ta = (lv_obj_t*)lv_event_get_target(e);
 
     if (code == LV_EVENT_FOCUSED) {
-        set_status("Type a place name");
+        set_status("Type a place name, then tap OK");
         return;
     }
 
-    if (code != LV_EVENT_READY && code != LV_EVENT_VALUE_CHANGED) return;
+    if (code != LV_EVENT_READY) return;
 
     const String query = lv_textarea_get_text(ta);
     if (query.length() < 2) {
@@ -100,6 +102,7 @@ static void location_textarea_event_cb(lv_event_t* e)
     }
 
     set_status("Searching...");
+    ui_keyboard_hide();
 
     uint8_t count = 0;
     const bool ok = LocationGeocoderSearch(query,
@@ -133,6 +136,7 @@ void ui_settings_add_location_controls(lv_obj_t* parent)
     lv_textarea_set_placeholder_text(s_locationTextarea, "Town, city or postcode");
     lv_textarea_set_text(s_locationTextarea, currentSettings.location_name.c_str());
     lv_obj_add_event_cb(s_locationTextarea, location_textarea_event_cb, LV_EVENT_ALL, nullptr);
+    ui_keyboard_attach_textarea(s_locationTextarea, parent);
 
     s_coordsLabel = lv_label_create(parent);
     lv_obj_set_width(s_coordsLabel, lv_pct(90));

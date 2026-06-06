@@ -26,6 +26,7 @@ bool loadSettingsDataFromFile(const char* filePath, SettingsData& settings)
     settings.wifi_pass = doc["wifi_pass"].as<String>();
     settings.weather_api_key = doc["weather_api_key"].as<String>();
     settings.tide_api_key = doc["tide_api_key"].as<String>();
+    settings.location_name = doc["location_name"].as<String>();
     settings.weather_lat = doc["weather_lat"].as<String>();
     settings.weather_long = doc["weather_long"].as<String>();
     settings.lastUpdate = doc["lastUpdate"].as<unsigned long>();
@@ -62,6 +63,7 @@ void saveSettingsDataToFile(const char* filePath, const SettingsData& settings)
     doc["wifi_pass"] = settings.wifi_pass;
     doc["weather_api_key"] = settings.weather_api_key;
     doc["tide_api_key"] = settings.tide_api_key;
+    doc["location_name"] = settings.location_name;
     doc["weather_lat"] = settings.weather_lat;
     doc["weather_long"] = settings.weather_long;
     doc["lastUpdate"] = settings.lastUpdate;
@@ -96,6 +98,7 @@ void initializeSettingsData()
         defaultSettings.wifi_pass = "";
         defaultSettings.weather_api_key = "";
         defaultSettings.tide_api_key = "";
+        defaultSettings.location_name = "";
         defaultSettings.lastUpdate = 0;
         defaultSettings.brightness_level = 70;
         defaultSettings.screen_dim_duration = 20;

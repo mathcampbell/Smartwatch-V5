@@ -5,25 +5,24 @@
 static constexpr int16_t SCREEN_W = 466;
 static constexpr int16_t SCREEN_H = 466;
 
-// Keep the whole editor comfortably inside the visible circular area.
-// A full-screen rectangular backdrop looks wrong on this display, so the
-// overlay is just an invisible click-catcher and the visible part is this
-// centred rounded modal.
-static constexpr int16_t MODAL_W = 420;
-static constexpr int16_t MODAL_H = 320;
-static constexpr int16_t MODAL_X = (SCREEN_W - MODAL_W) / 2;
-static constexpr int16_t MODAL_Y_SHOWN = (SCREEN_H - MODAL_H) / 2;
+// Full circular screen background, not a rectangular floating panel.
+static constexpr int16_t MODAL_W = 466;
+static constexpr int16_t MODAL_H = 466;
+static constexpr int16_t MODAL_X = 0;
+static constexpr int16_t MODAL_Y_SHOWN = 0;
 static constexpr int16_t MODAL_Y_HIDDEN = SCREEN_H + 8;
 
-static constexpr int16_t PREVIEW_X = 20;
-static constexpr int16_t PREVIEW_Y = 18;
-static constexpr int16_t PREVIEW_W = MODAL_W - 40;
-static constexpr int16_t PREVIEW_H = 54;
+// Narrower when high up, so it remains inside the circular safe area.
+static constexpr int16_t PREVIEW_W = 330;
+static constexpr int16_t PREVIEW_H = 50;
+static constexpr int16_t PREVIEW_X = (SCREEN_W - PREVIEW_W) / 2;
+static constexpr int16_t PREVIEW_Y = 68;
 
-static constexpr int16_t KEYBOARD_X = 8;
-static constexpr int16_t KEYBOARD_Y = 88;
-static constexpr int16_t KEYBOARD_W = MODAL_W - 16;
+// Width looked about right in the photo; move vertically to the centre.
+static constexpr int16_t KEYBOARD_W = 404;
 static constexpr int16_t KEYBOARD_H = 214;
+static constexpr int16_t KEYBOARD_X = (SCREEN_W - KEYBOARD_W) / 2;
+static constexpr int16_t KEYBOARD_Y = (SCREEN_H - KEYBOARD_H) / 2;
 
 static lv_obj_t* s_screen = nullptr;
 static lv_obj_t* s_overlay = nullptr;
@@ -120,12 +119,8 @@ static void create_overlay_if_needed()
     lv_obj_set_pos(s_modal, MODAL_X, MODAL_Y_HIDDEN);
     lv_obj_set_style_bg_color(s_modal, lv_color_hex(0x151827), 0);
     lv_obj_set_style_bg_opa(s_modal, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(s_modal, 30, 0);
-    lv_obj_set_style_border_width(s_modal, 1, 0);
-    lv_obj_set_style_border_color(s_modal, lv_color_hex(0x435074), 0);
-    lv_obj_set_style_shadow_width(s_modal, 18, 0);
-    lv_obj_set_style_shadow_opa(s_modal, LV_OPA_40, 0);
-    lv_obj_set_style_shadow_color(s_modal, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_radius(s_modal, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_width(s_modal, 0, 0);
     lv_obj_clear_flag(s_modal, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_modal, LV_OBJ_FLAG_CLICKABLE);
 

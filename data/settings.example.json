@@ -1,0 +1,17 @@
+{
+  "wifi_ssid": "",
+  "wifi_pass": "",
+
+  "weather_api_key": "",
+  "tide_api_key": "",
+  "weather_lat": "",
+  "weather_long": "",
+
+  "brightness_level": 70,
+  "screen_dim_duration": 20,
+  "sleep_duration": 30,
+  "system_volume": 50,
+  "lastUpdate": 0,
+
+  "known_wifi_networks": []
+}

@@ -36,19 +36,24 @@ static void overlay_delete_ready_cb(lv_anim_t* a)
 static void keep_active_textarea_visible()
 {
     if (!s_activeTextarea) return;
-
-    if (s_activeScrollParent) {
-        lv_obj_scroll_to_view_recursive(s_activeTextarea, LV_ANIM_ON);
-    } else {
-        lv_obj_scroll_to_view_recursive(s_activeTextarea, LV_ANIM_ON);
-    }
+    lv_obj_scroll_to_view_recursive(s_activeTextarea, LV_ANIM_ON);
 }
 
 static void keyboard_event_cb(lv_event_t* e)
 {
     lv_event_code_t code = lv_event_get_code(e);
 
-    if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
+    if (code == LV_EVENT_READY) {
+        lv_obj_t* ta = s_activeTextarea;
+        if (ta) {
+            lv_obj_send_event(ta, LV_EVENT_READY, nullptr);
+            lv_obj_clear_state(ta, LV_STATE_FOCUSED);
+        }
+        ui_keyboard_hide();
+        return;
+    }
+
+    if (code == LV_EVENT_CANCEL) {
         if (s_activeTextarea) {
             lv_obj_clear_state(s_activeTextarea, LV_STATE_FOCUSED);
         }

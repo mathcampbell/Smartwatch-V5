@@ -3,7 +3,6 @@
 const char* filePath = "/settings.json";
 SettingsData currentSettings;
 
-
 bool loadSettingsDataFromFile(const char* filePath, SettingsData& settings)
 {
     File file = LittleFS.open(filePath, FILE_READ);
@@ -12,7 +11,7 @@ bool loadSettingsDataFromFile(const char* filePath, SettingsData& settings)
         return false;
     }
 
-    DynamicJsonDocument doc(2048); // Adjust size as needed
+    DynamicJsonDocument doc(4096);
 
     DeserializationError error = deserializeJson(doc, file);
     if (error) {
@@ -22,17 +21,20 @@ bool loadSettingsDataFromFile(const char* filePath, SettingsData& settings)
         return false;
     }
 
-    settings.wifi_ssd = doc["wifi_ssd"].as<String>();
+    settings.wifi_ssid = doc["wifi_ssid"].isNull() ? doc["wifi_ssd"].as<String>() : doc["wifi_ssid"].as<String>();
+    settings.wifi_ssd = settings.wifi_ssid;
     settings.wifi_pass = doc["wifi_pass"].as<String>();
+    settings.weather_api_key = doc["weather_api_key"].as<String>();
+    settings.tide_api_key = doc["tide_api_key"].as<String>();
     settings.weather_lat = doc["weather_lat"].as<String>();
     settings.weather_long = doc["weather_long"].as<String>();
     settings.lastUpdate = doc["lastUpdate"].as<unsigned long>();
-    settings.brightness_level = doc["brightness_level"].as<uint16_t>(); 
-    settings.screen_dim_duration = doc["screen_dim_duration"].as<uint16_t>(); 
-    settings.sleep_duration = doc["sleep_duration"].as<uint16_t>(); 
-    settings.system_volume = doc["system_volume"].as<uint16_t>(); 
+    settings.brightness_level = doc["brightness_level"] | 70;
+    settings.screen_dim_duration = doc["screen_dim_duration"] | 20;
+    settings.sleep_duration = doc["sleep_duration"] | 30;
+    settings.system_volume = doc["system_volume"] | 50;
 
-      // Load known Wi-Fi networks
+    settings.known_wifi_networks.clear();
     JsonArray wifiNetworks = doc["known_wifi_networks"].as<JsonArray>();
     for (JsonObject network : wifiNetworks) {
         WiFiNetwork wifiNetwork;
@@ -41,13 +43,10 @@ bool loadSettingsDataFromFile(const char* filePath, SettingsData& settings)
         settings.known_wifi_networks.push_back(wifiNetwork);
     }
 
-
     file.close();
     Serial.println("Setting data loaded successfully");
     return true;
 }
-
-
 
 void saveSettingsDataToFile(const char* filePath, const SettingsData& settings)
 {
@@ -57,10 +56,12 @@ void saveSettingsDataToFile(const char* filePath, const SettingsData& settings)
         return;
     }
 
-    DynamicJsonDocument doc(2048); // Adjust size as needed
+    DynamicJsonDocument doc(4096);
 
-    doc["wifi_ssd"] = settings.wifi_ssd;
+    doc["wifi_ssid"] = settings.wifi_ssid;
     doc["wifi_pass"] = settings.wifi_pass;
+    doc["weather_api_key"] = settings.weather_api_key;
+    doc["tide_api_key"] = settings.tide_api_key;
     doc["weather_lat"] = settings.weather_lat;
     doc["weather_long"] = settings.weather_long;
     doc["lastUpdate"] = settings.lastUpdate;
@@ -68,7 +69,7 @@ void saveSettingsDataToFile(const char* filePath, const SettingsData& settings)
     doc["screen_dim_duration"] =  settings.screen_dim_duration;
     doc["sleep_duration"] =  settings.sleep_duration;
     doc["system_volume"] = settings.system_volume;
-     // Save known Wi-Fi networks
+
     JsonArray wifiNetworks = doc.createNestedArray("known_wifi_networks");
     for (const auto& network : settings.known_wifi_networks) {
         JsonObject networkObj = wifiNetworks.createNestedObject();
@@ -76,49 +77,38 @@ void saveSettingsDataToFile(const char* filePath, const SettingsData& settings)
         networkObj["password"] = network.password;
     }
 
-    if (serializeJson(doc, file) == 0) {
+    if (serializeJsonPretty(doc, file) == 0) {
         Serial.println("Failed to write to file");
     }
-
-
-
-    if (serializeJson(doc, file) == 0) {
-        Serial.println("Failed to write to file");
-    }
-
 
     file.close();
-    Serial.println("Weather data saved successfully");
+    Serial.println("Setting data saved successfully");
 }
-
 
 void initializeSettingsData()
 {
     if (!LittleFS.exists(filePath)) {
-        Serial.printf("File %s does not exist. Creating a default file.\n", filePath);
-          SettingsData defaultSettings;
-            defaultSettings.wifi_ssd = "GraphicsForge_A";
-            defaultSettings.wifi_pass = "25137916";
-            defaultSettings.lastUpdate = 0;
-            defaultSettings.brightness_level = 70;
-            defaultSettings.screen_dim_duration = 20;
-            defaultSettings.sleep_duration = 30;
-            defaultSettings.system_volume = 50;
-            defaultSettings.weather_lat = "56.0089507";
-            defaultSettings.weather_long = "-4.7990904";
+        Serial.printf("File %s does not exist. Creating a safe default file.\n", filePath);
 
+        SettingsData defaultSettings;
+        defaultSettings.wifi_ssid = "";
+        defaultSettings.wifi_ssd = "";
+        defaultSettings.wifi_pass = "";
+        defaultSettings.weather_api_key = "";
+        defaultSettings.tide_api_key = "";
+        defaultSettings.lastUpdate = 0;
+        defaultSettings.brightness_level = 70;
+        defaultSettings.screen_dim_duration = 20;
+        defaultSettings.sleep_duration = 30;
+        defaultSettings.system_volume = 50;
+        defaultSettings.weather_lat = "";
+        defaultSettings.weather_long = "";
 
-        // Initialize known Wi-Fi networks list
-        WiFiNetwork initialNetwork;
-        initialNetwork.ssid = "GraphicsForge_A";
-        initialNetwork.password = "25137916";
-        defaultSettings.known_wifi_networks.push_back(initialNetwork);
-        
-            saveSettingsDataToFile(filePath, defaultSettings);
-        }
-    else 
+        saveSettingsDataToFile(filePath, defaultSettings);
+        currentSettings = defaultSettings;
+    }
+    else
     {
-         loadSettingsDataFromFile("/settings.json", currentSettings);
-    
+        loadSettingsDataFromFile("/settings.json", currentSettings);
     }
 }

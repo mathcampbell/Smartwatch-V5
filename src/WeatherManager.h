@@ -5,13 +5,10 @@
 #include <WiFi.h>
 #include <JSON_Decoder.h>
 #include <OpenWeather.h>
-#include <Time.h>
+#include <time.h>
 #include <stdbool.h>
-#include "tide.h"
+#include "Tide.h"
 
-
-
-// Declare WeatherData structure
 struct WeatherData {
     String temperature;
     String condition;
@@ -21,12 +18,11 @@ struct WeatherData {
     String wind_speed;
     String humidity;
     String moonphase;
-    unsigned long lastUpdate; 
+    unsigned long lastUpdate;
     uint16_t id;
     unsigned long dt;
 };
 
-// Declare external variables
 extern String api_key;
 extern String latitude;
 extern String longitude;
@@ -34,10 +30,9 @@ extern String units;
 extern String language;
 extern WeatherData currentWeatherData;
 
-// Declare functions
 void WeatherManagerBegin();
 bool WeatherUpdate();
-const WeatherData& WeatherGet();      // always returns latest (even if old)
+const WeatherData& WeatherGet();
 
 void WeatherInit();
 void printCurrentWeather();
@@ -48,20 +43,16 @@ void saveWeatherDataToFile(const char* filePath, const WeatherData& weather);
 void initializeWeatherData();
 bool WeatherConsumeNtpSync(time_t *outEpoch);
 
-static bool fetchCurrentWeatherHTTP(WeatherData& out);
-
 String strTime(time_t unixTime);
 
-// Tides
-const TideState& TideGet();   // access for UI, etc
-bool WeatherManager_GetTideCurve(float*   heights,
+const TideState& TideGet();
+bool WeatherManager_GetTideCurve(float* heights,
                                  uint16_t maxSamples,
                                  uint16_t& outCount,
-                                 time_t&   outFirstSampleUtc,
+                                 time_t& outFirstSampleUtc,
                                  uint32_t& outStepSeconds);
 
-void WeatherManager_MarkTideCurveDirty();      // called when new tide data arrives
-bool WeatherManager_TakeTideCurveDirtyFlag();  // UI polls this
+void WeatherManager_MarkTideCurveDirty();
+bool WeatherManager_TakeTideCurveDirtyFlag();
 
-
-#endif // WEATHER_MANAGER_H
+#endif

@@ -4,10 +4,26 @@
 
 static constexpr int16_t SCREEN_W = 466;
 static constexpr int16_t SCREEN_H = 466;
-static constexpr int16_t MODAL_W = 398;
-static constexpr int16_t MODAL_H = 388;
-static constexpr int16_t MODAL_Y_SHOWN = 39;
+
+// Keep the whole editor comfortably inside the visible circular area.
+// A full-screen rectangular backdrop looks wrong on this display, so the
+// overlay is just an invisible click-catcher and the visible part is this
+// centred rounded modal.
+static constexpr int16_t MODAL_W = 420;
+static constexpr int16_t MODAL_H = 320;
+static constexpr int16_t MODAL_X = (SCREEN_W - MODAL_W) / 2;
+static constexpr int16_t MODAL_Y_SHOWN = (SCREEN_H - MODAL_H) / 2;
 static constexpr int16_t MODAL_Y_HIDDEN = SCREEN_H + 8;
+
+static constexpr int16_t PREVIEW_X = 20;
+static constexpr int16_t PREVIEW_Y = 18;
+static constexpr int16_t PREVIEW_W = MODAL_W - 40;
+static constexpr int16_t PREVIEW_H = 54;
+
+static constexpr int16_t KEYBOARD_X = 8;
+static constexpr int16_t KEYBOARD_Y = 88;
+static constexpr int16_t KEYBOARD_W = MODAL_W - 16;
+static constexpr int16_t KEYBOARD_H = 214;
 
 static lv_obj_t* s_screen = nullptr;
 static lv_obj_t* s_overlay = nullptr;
@@ -93,27 +109,30 @@ static void create_overlay_if_needed()
     lv_obj_remove_style_all(s_overlay);
     lv_obj_set_size(s_overlay, SCREEN_W, SCREEN_H);
     lv_obj_align(s_overlay, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_style_bg_color(s_overlay, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_bg_opa(s_overlay, LV_OPA_80, 0);
+    lv_obj_set_style_bg_opa(s_overlay, LV_OPA_TRANSP, 0);
     lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(s_overlay, overlay_bg_event_cb, LV_EVENT_CLICKED, nullptr);
 
     s_modal = lv_obj_create(s_overlay);
     lv_obj_remove_style_all(s_modal);
     lv_obj_set_size(s_modal, MODAL_W, MODAL_H);
-    lv_obj_set_pos(s_modal, (SCREEN_W - MODAL_W) / 2, MODAL_Y_HIDDEN);
+    lv_obj_set_pos(s_modal, MODAL_X, MODAL_Y_HIDDEN);
     lv_obj_set_style_bg_color(s_modal, lv_color_hex(0x151827), 0);
     lv_obj_set_style_bg_opa(s_modal, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(s_modal, 26, 0);
+    lv_obj_set_style_radius(s_modal, 30, 0);
     lv_obj_set_style_border_width(s_modal, 1, 0);
     lv_obj_set_style_border_color(s_modal, lv_color_hex(0x435074), 0);
+    lv_obj_set_style_shadow_width(s_modal, 18, 0);
+    lv_obj_set_style_shadow_opa(s_modal, LV_OPA_40, 0);
+    lv_obj_set_style_shadow_color(s_modal, lv_color_hex(0x000000), 0);
     lv_obj_clear_flag(s_modal, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_modal, LV_OBJ_FLAG_CLICKABLE);
 
     s_preview = lv_textarea_create(s_modal);
-    lv_obj_set_size(s_preview, 350, 62);
-    lv_obj_set_pos(s_preview, 24, 24);
-    lv_textarea_set_one_line(s_preview, false);
+    lv_obj_set_size(s_preview, PREVIEW_W, PREVIEW_H);
+    lv_obj_set_pos(s_preview, PREVIEW_X, PREVIEW_Y);
+    lv_textarea_set_one_line(s_preview, true);
     lv_textarea_set_placeholder_text(s_preview, "Text");
     lv_obj_set_style_text_font(s_preview, &lv_font_montserrat_20, 0);
     lv_obj_set_style_radius(s_preview, 18, 0);
@@ -124,8 +143,8 @@ static void create_overlay_if_needed()
     lv_obj_set_style_pad_all(s_preview, 10, 0);
 
     s_keyboard = lv_keyboard_create(s_modal);
-    lv_obj_set_size(s_keyboard, 378, 230);
-    lv_obj_set_pos(s_keyboard, 10, 106);
+    lv_obj_set_size(s_keyboard, KEYBOARD_W, KEYBOARD_H);
+    lv_obj_set_pos(s_keyboard, KEYBOARD_X, KEYBOARD_Y);
     lv_keyboard_set_mode(s_keyboard, LV_KEYBOARD_MODE_TEXT_LOWER);
     lv_keyboard_set_textarea(s_keyboard, s_preview);
     lv_obj_add_event_cb(s_keyboard, keyboard_event_cb, LV_EVENT_ALL, nullptr);
@@ -183,6 +202,7 @@ static void textarea_focus_event_cb(lv_event_t* e)
     lv_event_code_t code = lv_event_get_code(e);
     lv_obj_t* textarea = (lv_obj_t*)lv_event_get_target(e);
     lv_obj_t* scroll_parent = (lv_obj_t*)lv_event_get_user_data(e);
+    (void)scroll_parent;
 
     if (code == LV_EVENT_FOCUSED || code == LV_EVENT_CLICKED) {
         show_keyboard(textarea, scroll_parent);

@@ -4,6 +4,7 @@
 
   "weather_api_key": "",
   "tide_api_key": "",
+  "location_name": "",
   "weather_lat": "",
   "weather_long": "",
 

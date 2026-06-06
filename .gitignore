@@ -3,3 +3,7 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# Local LittleFS settings containing Wi-Fi credentials and API keys
+data/settings.json
+data/secrets.json

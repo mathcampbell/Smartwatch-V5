@@ -20,6 +20,7 @@ struct SettingsData {
 
     String weather_api_key;
     String tide_api_key;
+    String location_name;
     String weather_lat;
     String weather_long;
 

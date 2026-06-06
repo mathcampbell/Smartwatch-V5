@@ -6,6 +6,7 @@
 #include "ui_Settings.h"
 #include "DisplayManager.h"
 #include "SettingsManager.h"
+#include "ui_SettingsLocation.h"
 //#include "mc_circular_keyboard.h"
 
 lv_obj_t * arc_segments[NUM_SEGMENTS];
@@ -124,7 +125,7 @@ void create_radial_menu(void)
 {
 // Create the arc
     ui_SettingsRadialMenu = lv_arc_create(ui_Settings);
-    lv_obj_set_size(ui_SettingsRadialMenu, 400, 400);
+    lv_obj_set_size(ui_SettingsRadialMenu, 460, 460);
     lv_obj_center(ui_SettingsRadialMenu);
     lv_arc_set_bg_angles(ui_SettingsRadialMenu, 0, 360); // Full circle
     lv_arc_set_range(ui_SettingsRadialMenu, 0, 600);
@@ -160,7 +161,7 @@ void ui_Settings_screen_init(void)
     lv_obj_clear_flag(ui_Settings, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(ui_Settings, lv_color_hex(0x100820), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(ui_Settings, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_size(ui_Settings, 412, 412);
+    lv_obj_set_size(ui_Settings, 466, 466);
     create_radial_menu();
     create_content_area();
      add_segment_buttons(); // Use this if you're creating buttons
@@ -504,6 +505,9 @@ void show_general_settings(void) {
     lv_slider_set_range(sleep_timer_slider, 5, 60);
     lv_slider_set_value(sleep_timer_slider, currentSettings.sleep_duration, LV_ANIM_OFF);
     lv_obj_add_event_cb(sleep_timer_slider, sleep_timer_slider_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    //Location Setings Call
+    ui_settings_add_location_controls(content_area);
 
 }
 

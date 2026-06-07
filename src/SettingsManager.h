@@ -23,6 +23,7 @@ struct SettingsData {
     String location_name;
     String weather_lat;
     String weather_long;
+    int32_t timezone_offset_seconds;
 
     unsigned long lastUpdate;
     uint16_t brightness_level;

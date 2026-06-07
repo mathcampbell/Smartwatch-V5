@@ -32,6 +32,8 @@ extern WeatherData currentWeatherData;
 
 void WeatherManagerBegin();
 bool WeatherUpdate();
+bool WeatherLoadCached();
+bool TideLoadCached();
 const WeatherData& WeatherGet();
 
 void WeatherInit();

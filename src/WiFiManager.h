@@ -30,6 +30,7 @@ void wifi_manager_disconnect(bool power_off = true);
 WifiMgrState wifi_manager_state();
 int8_t wifi_manager_rssi();
 const char* wifi_manager_current_ssid();
+bool wifi_manager_failure_visible();
 
 // Helper
 bool wifi_manager_is_connected();

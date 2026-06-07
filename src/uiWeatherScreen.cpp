@@ -16,7 +16,7 @@ static constexpr int16_t SCR_H = 466;
 static constexpr int16_t BG_SZ = 414;
 
 // Thinner than the old 58px ring so it doesn't dominate the weather content.
-static constexpr int16_t RING_W = 38;
+static constexpr int16_t RING_W = 16;
 static constexpr int16_t ARC_ROT = 120;
 static constexpr int16_t ARC_SWEEP = 300;
 static constexpr int16_t SEG_COUNT = 5;
@@ -174,7 +174,7 @@ void ui_WeatherScreen_screen_init(void)
     if(!shadow_inited) {
         shadow_inited = true;
         lv_style_init(&style_shadow);
-        lv_style_set_text_opa(&style_shadow, LV_OPA_45);
+        lv_style_set_text_opa(&style_shadow, LV_OPA_40);
         lv_style_set_text_color(&style_shadow, lv_color_black());
     }
 
@@ -371,7 +371,7 @@ static const char* pick_bg(uint16_t id, const String& icon)
     if(id == 802 || id == 803 || id == 804) return "A:/lvgl/weather/cloudy-bg.jpg";
     if(id / 100 == 2) return "A:/lvgl/weather/thunder-bg.jpg";
     if(id / 100 == 3) return "A:/lvgl/weather/drizzle-bg.jpg";
-    if(id / 100 == 5) return (id == 500) ? "A:/lvgl/weather/light-rain-bg.jpg" : "A:/lvgl/weather/rain-bg.jpg";
+    if(id / 100 == 5) return (id <= 501) ? "A:/lvgl/weather/light-rain-bg.jpg" : "A:/lvgl/weather/rain-bg.jpg";
     if(id / 100 == 6) return (id >= 611 && id <= 616) ? "A:/lvgl/weather/sleet-bg.jpg" : "A:/lvgl/weather/snow-bg.jpg";
     if(id / 100 == 7) return "A:/lvgl/weather/fog-bg.jpg";
     return "A:/lvgl/weather/cloudy-bg.jpg";
@@ -407,7 +407,7 @@ static void weather_arc_draw(lv_event_t* e)
     const int32_t h = lv_area_get_height(&a);
     const int32_t cx = a.x1 + w / 2;
     const int32_t cy = a.y1 + h / 2;
-    const int32_t r = (LV_MIN(w, h) / 2) - (RING_W / 2) - 2;
+    const int32_t r = (LV_MIN(w, h) / 2) - (RING_W / 2) - 1;
     const int sel = (int)lv_arc_get_value(obj);
 
     lv_draw_arc_dsc_t base;
@@ -416,7 +416,7 @@ static void weather_arc_draw(lv_event_t* e)
     base.center.y = (lv_coord_t)cy;
     base.radius   = (lv_coord_t)r;
     base.width    = (lv_coord_t)RING_W;
-    base.opa      = LV_OPA_85;
+    base.opa      = LV_OPA_80;
     base.color    = lv_color_hex(0x0B111A);
     base.rounded  = 0;
 

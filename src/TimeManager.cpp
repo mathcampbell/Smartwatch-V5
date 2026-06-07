@@ -33,15 +33,17 @@ static bool rtc_datetime_sane(const RTC_DateTime &dt)
 
 static time_t tm_to_epoch_utc(struct tm *t)
 {
-    const char *old_tz = getenv("TZ");
+    const char *old_tz_ptr = getenv("TZ");
+    String old_tz = old_tz_ptr ? String(old_tz_ptr) : String();
+    const bool had_old_tz = old_tz_ptr != nullptr;
 
     setenv("TZ", "UTC0", 1);
     tzset();
 
     time_t epoch = mktime(t);
 
-    if (old_tz) {
-        setenv("TZ", old_tz, 1);
+    if (had_old_tz) {
+        setenv("TZ", old_tz.c_str(), 1);
     } else {
         unsetenv("TZ");
     }

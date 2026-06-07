@@ -30,3 +30,5 @@ bool LocationGeocoderSearch(const String& query,
                             LocationGeocodeResult* results,
                             uint8_t maxResults,
                             uint8_t& outCount);
+
+const String& LocationGeocoderLastError();

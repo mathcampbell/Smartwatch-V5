@@ -4,16 +4,13 @@
 #include <Wire.h>
 #include <time.h>
 #include <sys/time.h>
+#include <stdlib.h>
 
 #include "SensorPCF85063.hpp"
 #define I2C_SCL 10
 #define I2C_SDA 11
 
 static SensorPCF85063 rtc;
-
-// IMPORTANT:
-// Strongly recommended: store RTC as UTC, not local time.
-// That way DST/timezone changes are purely a display/system TZ concern.
 static constexpr bool RTC_STORES_UTC = true;
 
 static bool rtc_datetime_sane(const RTC_DateTime &dt)
@@ -36,16 +33,13 @@ static bool rtc_datetime_sane(const RTC_DateTime &dt)
 
 static time_t tm_to_epoch_utc(struct tm *t)
 {
-    // Save current TZ
     const char *old_tz = getenv("TZ");
 
-    // Force UTC
     setenv("TZ", "UTC0", 1);
     tzset();
 
     time_t epoch = mktime(t);
 
-    // Restore TZ
     if (old_tz) {
         setenv("TZ", old_tz, 1);
     } else {
@@ -76,7 +70,6 @@ static time_t rtc_to_epoch(const RTC_DateTime &dt)
 
 bool time_manager_begin()
 {
-    // Waveshare example does: rtc.begin(Wire, IIC_SDA, IIC_SCL)
     if (!rtc.begin(Wire, I2C_SDA, I2C_SCL)) {
         Serial.println("[RTC] PCF85063 not found (begin failed)");
         return false;
@@ -93,7 +86,7 @@ bool time_manager_bootstrap_system_time_from_rtc()
     }
 
     time_t epoch = rtc_to_epoch(dt);
-    if (epoch < 1704067200) { // 2024-01-01 00:00:00 UTC
+    if (epoch < 1704067200) {
         Serial.println("[RTC] epoch too small; not bootstrapping system time");
         return false;
     }
@@ -116,7 +109,7 @@ bool time_manager_bootstrap_system_time_from_rtc()
 bool time_manager_write_rtc_from_system_time()
 {
     time_t now = time(nullptr);
-    if (now < 1704067200) { // still not valid
+    if (now < 1704067200) {
         Serial.println("[RTC] system time not valid; not writing RTC");
         return false;
     }
@@ -150,6 +143,34 @@ bool time_manager_read_rtc_epoch(time_t *outEpoch)
     RTC_DateTime dt = rtc.getDateTime();
     if (!rtc_datetime_sane(dt)) return false;
 
-    *outEpoch = rtc_to_epoch(dt); // your existing conversion (UTC/local depending on your choice)
+    *outEpoch = rtc_to_epoch(dt);
+    return true;
+}
+
+bool time_manager_apply_timezone_offset_seconds(int32_t offsetSeconds)
+{
+    const int32_t offsetHours = offsetSeconds / 3600;
+    const int32_t offsetMinutes = abs((int)(offsetSeconds % 3600)) / 60;
+
+    String tz = "UTC";
+    if (offsetSeconds == 0) {
+        tz = "UTC0";
+    } else {
+        tz += (offsetSeconds > 0) ? "-" : "+";
+        tz += String(abs((int)offsetHours));
+        if (offsetMinutes > 0) {
+            tz += ":";
+            if (offsetMinutes < 10) tz += "0";
+            tz += String(offsetMinutes);
+        }
+    }
+
+    setenv("TZ", tz.c_str(), 1);
+    tzset();
+
+    Serial.print("[TimeManager] Applied timezone offset seconds=");
+    Serial.print(offsetSeconds);
+    Serial.print(" TZ=");
+    Serial.println(tz);
     return true;
 }

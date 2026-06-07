@@ -39,4 +39,12 @@ bool loadSettingsDataFromFile(const char* filePath, SettingsData& settings);
 void saveSettingsDataToFile(const char* filePath, const SettingsData& settings);
 void initializeSettingsData();
 
+int findKnownWiFiNetworkIndex(const String& ssid);
+bool addOrUpdateKnownWiFiNetwork(const String& ssid, const String& password, bool makeFirst = true);
+bool removeKnownWiFiNetwork(const String& ssid);
+bool moveKnownWiFiNetworkUp(const String& ssid);
+bool moveKnownWiFiNetworkDown(const String& ssid);
+bool promoteKnownWiFiNetwork(const String& ssid);
+bool hasAnyKnownWiFiNetwork();
+
 #endif

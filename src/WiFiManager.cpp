@@ -64,7 +64,10 @@ static bool start_current_network()
     g_state = WIFI_MGR_CONNECTING;
 
     Serial.print("[WiFiMgr] Connecting to ");
-    Serial.println(g_ssid);
+    Serial.print(g_ssid);
+    Serial.print(" timeout=");
+    Serial.print(g_timeout_ms);
+    Serial.println("ms");
     return true;
 }
 
@@ -159,13 +162,19 @@ void wifi_manager_tick() {
         return;
     }
 
-    bool failed = (st == WL_CONNECT_FAILED || st == WL_NO_SSID_AVAIL);
-    bool timed_out = ((millis() - g_start_ms) >= g_timeout_ms);
+    const uint32_t elapsed = millis() - g_start_ms;
+    const bool timed_out = elapsed >= g_timeout_ms;
 
-    if (!failed && !timed_out) return;
+    if (!timed_out) {
+        return;
+    }
 
-    Serial.print("[WiFiMgr] Failed to connect to ");
-    Serial.println(g_ssid);
+    Serial.print("[WiFiMgr] Timed out connecting to ");
+    Serial.print(g_ssid);
+    Serial.print(" after ");
+    Serial.print(elapsed);
+    Serial.print("ms, status=");
+    Serial.println((int)st);
 
     if (g_trying_known_networks && (g_known_index + 1) < g_try_networks.size()) {
         start_known_index(g_known_index + 1);

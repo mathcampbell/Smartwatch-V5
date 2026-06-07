@@ -34,8 +34,11 @@ static TideService* g_tideService = nullptr;
 static TideState g_tideState;
 
 WeatherData currentWeatherData;
+static WeatherForecastDay g_forecastDays[WEATHER_FORECAST_DAYS];
+static uint8_t g_forecastCount = 0;
 
 static bool fetchCurrentWeatherHTTP(WeatherData& out);
+static bool fetchForecastHTTP();
 
 static void log_heap_detailed(const char* tag)
 {
@@ -50,6 +53,21 @@ static void log_heap_detailed(const char* tag)
     Serial.printf("  DEFAULT heap:   free=%u, largest=%u\n", (unsigned)freeDefault, (unsigned)largestDefault);
     Serial.printf("  INTERNAL heap:  free=%u, largest=%u\n", (unsigned)freeInternal, (unsigned)largestInternal);
     Serial.printf("  PSRAM:          free=%u, largest=%u\n", (unsigned)freePsram, (unsigned)largestPsram);
+}
+
+static String dayLabelFromEpoch(time_t t)
+{
+    struct tm lt {};
+    localtime_r(&t, &lt);
+    char buf[8];
+    strftime(buf, sizeof(buf), "%a", &lt);
+    return String(buf);
+}
+
+static String tempString(float temp)
+{
+    if (isnan(temp)) return "--°";
+    return String((int)roundf(temp)) + "°";
 }
 
 void WeatherManagerBegin()
@@ -73,6 +91,7 @@ void WeatherManagerBegin()
     }
 
     WeatherLoadCached();
+    ForecastLoadCached();
     TideLoadCached();
 }
 
@@ -100,6 +119,11 @@ bool WeatherLoadCached()
     return true;
 }
 
+bool ForecastLoadCached()
+{
+    return loadForecastDataFromFile("/forecast.json");
+}
+
 bool TideLoadCached()
 {
     if (!g_tideService) {
@@ -121,12 +145,9 @@ bool WeatherUpdate()
 {
     g_weatherUpdated = false;
 
-    if (currentWeatherData.temperature.length() == 0) {
-        WeatherLoadCached();
-    }
-    if (g_tideState.count < 2) {
-        TideLoadCached();
-    }
+    if (currentWeatherData.temperature.length() == 0) WeatherLoadCached();
+    if (g_forecastCount == 0) ForecastLoadCached();
+    if (g_tideState.count < 2) TideLoadCached();
 
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("[Weather] No WiFi; keeping cached data.");
@@ -160,11 +181,8 @@ bool WeatherUpdate()
 
         switch (tr) {
             case TideUpdateResult::Ok:
-                Serial.println("[Tide] Tide data updated.");
-                WeatherManager_MarkTideCurveDirty();
-                break;
             case TideUpdateResult::SkippedRateLimit:
-                Serial.println("[Tide] Tide fetch skipped; using cached tide.");
+                Serial.println("[Tide] Tide data available.");
                 WeatherManager_MarkTideCurveDirty();
                 break;
             case TideUpdateResult::TimeNotReady:
@@ -181,6 +199,7 @@ bool WeatherUpdate()
     }
 
     updateWeatherData();
+    updateForecastData();
     return g_weatherUpdated;
 }
 
@@ -188,11 +207,11 @@ void saveWeatherDataToFile(const char* filePath, const WeatherData& weather)
 {
     File file = LittleFS.open(filePath, "w");
     if (!file) {
-        Serial.println("Failed to open file for writing");
+        Serial.println("Failed to open weather file for writing");
         return;
     }
 
-    DynamicJsonDocument doc(512);
+    DynamicJsonDocument doc(768);
     doc["temperature"] = weather.temperature;
     doc["condition"] = weather.condition;
     doc["icon"] = weather.icon;
@@ -204,11 +223,10 @@ void saveWeatherDataToFile(const char* filePath, const WeatherData& weather)
     doc["id"] = weather.id;
     doc["moonphase"] = weather.moonphase;
     doc["dt"] = weather.dt;
+    doc["temp_min"] = weather.temp_min;
+    doc["temp_max"] = weather.temp_max;
 
-    if (serializeJson(doc, file) == 0) {
-        Serial.println("Failed to write to file");
-    }
-
+    if (serializeJson(doc, file) == 0) Serial.println("Failed to write weather file");
     file.close();
     Serial.println("Weather data saved successfully");
 }
@@ -217,16 +235,16 @@ bool loadWeatherDataFromFile(const char* filePath, WeatherData& weather)
 {
     File file = LittleFS.open(filePath, FILE_READ);
     if (!file) {
-        Serial.println("Failed to open file for reading");
+        Serial.println("Failed to open weather file for reading");
         return false;
     }
 
-    DynamicJsonDocument doc(512);
+    DynamicJsonDocument doc(768);
     DeserializationError error = deserializeJson(doc, file);
     file.close();
 
     if (error) {
-        Serial.print("Failed to read file: ");
+        Serial.print("Failed to read weather file: ");
         Serial.println(error.c_str());
         return false;
     }
@@ -242,9 +260,70 @@ bool loadWeatherDataFromFile(const char* filePath, WeatherData& weather)
     weather.lastUpdate = doc["lastUpdate"].as<unsigned long>();
     weather.id = doc["id"].as<uint16_t>();
     weather.dt = doc["dt"].as<unsigned long>();
+    weather.temp_min = doc["temp_min"].as<String>();
+    weather.temp_max = doc["temp_max"].as<String>();
 
     Serial.println("Weather data loaded successfully");
     return true;
+}
+
+void saveForecastDataToFile(const char* filePath)
+{
+    File file = LittleFS.open(filePath, "w");
+    if (!file) {
+        Serial.println("Failed to open forecast file for writing");
+        return;
+    }
+
+    DynamicJsonDocument doc(2048);
+    doc["count"] = g_forecastCount;
+    JsonArray arr = doc.createNestedArray("days");
+    for (uint8_t i = 0; i < g_forecastCount && i < WEATHER_FORECAST_DAYS; ++i) {
+        JsonObject obj = arr.createNestedObject();
+        obj["dayLabel"] = g_forecastDays[i].dayLabel;
+        obj["temperature"] = g_forecastDays[i].temperature;
+        obj["icon"] = g_forecastDays[i].icon;
+        obj["id"] = g_forecastDays[i].id;
+        obj["dt"] = g_forecastDays[i].dt;
+    }
+
+    if (serializeJson(doc, file) == 0) Serial.println("Failed to write forecast file");
+    file.close();
+    Serial.println("Forecast data saved successfully");
+}
+
+bool loadForecastDataFromFile(const char* filePath)
+{
+    File file = LittleFS.open(filePath, FILE_READ);
+    if (!file) {
+        Serial.println("[Forecast] No cached forecast file available.");
+        return false;
+    }
+
+    DynamicJsonDocument doc(2048);
+    DeserializationError error = deserializeJson(doc, file);
+    file.close();
+
+    if (error) {
+        Serial.print("[Forecast] Failed to read forecast file: ");
+        Serial.println(error.c_str());
+        return false;
+    }
+
+    g_forecastCount = 0;
+    JsonArray arr = doc["days"].as<JsonArray>();
+    for (JsonObject obj : arr) {
+        if (g_forecastCount >= WEATHER_FORECAST_DAYS) break;
+        WeatherForecastDay& d = g_forecastDays[g_forecastCount++];
+        d.dayLabel = obj["dayLabel"].as<String>();
+        d.temperature = obj["temperature"].as<String>();
+        d.icon = obj["icon"].as<String>();
+        d.id = obj["id"].as<uint16_t>();
+        d.dt = obj["dt"].as<unsigned long>();
+    }
+
+    Serial.printf("[Forecast] Loaded %u cached forecast day(s).\n", g_forecastCount);
+    return g_forecastCount > 0;
 }
 
 void initializeWeatherData()
@@ -266,17 +345,18 @@ void initializeWeatherData()
         defaultWeather.lastUpdate = 0;
         defaultWeather.id = 666;
         defaultWeather.dt = 0;
+        defaultWeather.temp_min = "--°";
+        defaultWeather.temp_max = "--°";
         saveWeatherDataToFile(filePath, defaultWeather);
     }
 
     WeatherLoadCached();
+    ForecastLoadCached();
 }
 
 void updateWeatherData()
 {
-    if (currentWeatherData.temperature.length() == 0) {
-        WeatherLoadCached();
-    }
+    if (currentWeatherData.temperature.length() == 0) WeatherLoadCached();
 
     Serial.printf("Weather data timestamp (UNIX): %lu\n", currentWeatherData.dt);
     Serial.println("Fetching new weather data...");
@@ -292,18 +372,22 @@ void updateWeatherData()
     saveWeatherDataToFile("/weather.json", currentWeatherData);
 
     Serial.println("Setting current Weather Data to display:");
-    if (ui_WeatherLabel) {
-        lv_label_set_text(ui_WeatherLabel, currentWeatherData.temperature.c_str());
-    }
+    if (ui_WeatherLabel) lv_label_set_text(ui_WeatherLabel, currentWeatherData.temperature.c_str());
 
     const char* iconPath = getMeteoconIcon(currentWeatherData.id, true);
     Serial.printf("Icon path: %s\n", iconPath);
-    if (ui_WeatherImage) {
-        lv_img_set_src(ui_WeatherImage, iconPath);
-    }
+    if (ui_WeatherImage) lv_img_set_src(ui_WeatherImage, iconPath);
 
     Serial.printf("[UI] Setting temp label from currentWeatherData.temperature='%s' id=%u\n",
                   currentWeatherData.temperature.c_str(), currentWeatherData.id);
+}
+
+void updateForecastData()
+{
+    if (!fetchForecastHTTP()) {
+        Serial.println("[Forecast] fetchForecastHTTP failed; keeping cached forecast data.");
+        if (g_forecastCount == 0) ForecastLoadCached();
+    }
 }
 
 String strTime(time_t unixTime)
@@ -380,6 +464,8 @@ static bool fetchCurrentWeatherHTTP(WeatherData& out)
     time_manager_apply_timezone_offset_seconds(tzOffset);
 
     float temp = doc["main"]["temp"] | NAN;
+    float tempMin = doc["main"]["temp_min"] | NAN;
+    float tempMax = doc["main"]["temp_max"] | NAN;
     uint16_t id = doc["weather"][0]["id"] | 666;
     const char* desc = doc["weather"][0]["description"] | "Unknown";
     const char* icon = doc["weather"][0]["icon"] | "";
@@ -394,15 +480,139 @@ static bool fetchCurrentWeatherHTTP(WeatherData& out)
     out.sunset = strTime((time_t)(doc["sys"]["sunset"] | 0));
     out.humidity = String((int)(doc["main"]["humidity"] | 0)) + "%";
     out.wind_speed = String((float)(doc["wind"]["speed"] | 0.0f), 1) + " m/s";
+    out.temp_min = tempString(tempMin);
+    out.temp_max = tempString(tempMax);
 
     Serial.println("[Weather] Fetched current weather via HTTP.");
     g_weatherUpdated = true;
     return true;
 }
 
+static bool fetchForecastHTTP()
+{
+    if (WiFi.status() != WL_CONNECTED) return false;
+    if (api_key.length() == 0 || latitude.length() == 0 || longitude.length() == 0) return false;
+
+    WiFiClient client;
+    HTTPClient http;
+
+    String url = "http://api.openweathermap.org/data/2.5/forecast?lat=" + latitude +
+                 "&lon=" + longitude +
+                 "&units=" + units +
+                 "&lang=" + language +
+                 "&appid=" + api_key;
+
+    if (!http.begin(client, url)) {
+        Serial.println("[Forecast] http.begin failed");
+        return false;
+    }
+
+    int code = http.GET();
+    if (code != HTTP_CODE_OK) {
+        Serial.printf("[Forecast] HTTP GET failed: %d\n", code);
+        http.end();
+        return false;
+    }
+
+    DynamicJsonDocument doc(28 * 1024);
+    DeserializationError err = deserializeJson(doc, http.getStream());
+    http.end();
+
+    if (err) {
+        Serial.printf("[Forecast] JSON parse failed: %s\n", err.c_str());
+        return false;
+    }
+
+    int32_t tzOffset = doc["city"]["timezone"] | currentSettings.timezone_offset_seconds;
+    if (tzOffset != currentSettings.timezone_offset_seconds) {
+        currentSettings.timezone_offset_seconds = tzOffset;
+        saveSettingsDataToFile("/settings.json", currentSettings);
+    }
+    time_manager_apply_timezone_offset_seconds(tzOffset);
+
+    struct Candidate {
+        bool used = false;
+        int year = 0;
+        int yday = 0;
+        int score = 9999;
+        WeatherForecastDay data;
+    } candidates[WEATHER_FORECAST_DAYS];
+
+    time_t now = time(nullptr);
+    struct tm today {};
+    localtime_r(&now, &today);
+
+    JsonArray list = doc["list"].as<JsonArray>();
+    for (JsonObject item : list) {
+        unsigned long dt = item["dt"] | 0UL;
+        if (dt == 0) continue;
+
+        time_t t = (time_t)dt;
+        struct tm lt {};
+        localtime_r(&t, &lt);
+
+        if (lt.tm_year == today.tm_year && lt.tm_yday == today.tm_yday) continue;
+
+        int slot = -1;
+        for (uint8_t i = 0; i < WEATHER_FORECAST_DAYS; ++i) {
+            if (candidates[i].used && candidates[i].year == lt.tm_year && candidates[i].yday == lt.tm_yday) {
+                slot = i;
+                break;
+            }
+        }
+
+        if (slot < 0) {
+            for (uint8_t i = 0; i < WEATHER_FORECAST_DAYS; ++i) {
+                if (!candidates[i].used) {
+                    slot = i;
+                    candidates[i].used = true;
+                    candidates[i].year = lt.tm_year;
+                    candidates[i].yday = lt.tm_yday;
+                    break;
+                }
+            }
+        }
+
+        if (slot < 0) break;
+
+        int minutesFromMidday = abs((lt.tm_hour * 60 + lt.tm_min) - 720);
+        if (minutesFromMidday > candidates[slot].score) continue;
+
+        float temp = item["main"]["temp"] | NAN;
+        candidates[slot].score = minutesFromMidday;
+        candidates[slot].data.dayLabel = dayLabelFromEpoch(t);
+        candidates[slot].data.temperature = tempString(temp);
+        candidates[slot].data.icon = item["weather"][0]["icon"].as<String>();
+        candidates[slot].data.id = item["weather"][0]["id"] | 666;
+        candidates[slot].data.dt = dt;
+    }
+
+    g_forecastCount = 0;
+    for (uint8_t i = 0; i < WEATHER_FORECAST_DAYS; ++i) {
+        if (!candidates[i].used) continue;
+        g_forecastDays[g_forecastCount++] = candidates[i].data;
+    }
+
+    if (g_forecastCount == 0) {
+        Serial.println("[Forecast] Forecast response contained no usable days.");
+        return false;
+    }
+
+    saveForecastDataToFile("/forecast.json");
+    g_weatherUpdated = true;
+    Serial.printf("[Forecast] Fetched %u forecast day(s).\n", g_forecastCount);
+    return true;
+}
+
 const WeatherData& WeatherGet()
 {
     return currentWeatherData;
+}
+
+const WeatherForecastDay* WeatherForecastGet(uint8_t& outCount)
+{
+    outCount = g_forecastCount;
+    return g_forecastDays;
 }
 
 const TideState& TideGet()

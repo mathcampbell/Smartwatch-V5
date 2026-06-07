@@ -504,33 +504,55 @@ void loop()
     lvgl_unlock();
   }
 
-  if (!weather_job_active && ((currentTime - last_weather_update >= 360000) || checkWeatherFlag)) {
-    checkWeatherFlag = false;
+if (!weather_job_active && ((currentTime - last_weather_update >= 360000) || checkWeatherFlag)) {
+  checkWeatherFlag = false;
 
-    if (currentSettings.wifi_ssid.length() == 0) {
-      Serial.println("[WiFi] No SSID configured; skipping weather update.");
-    } else {
-      weather_job_active = true;
-      weather_ran_once = false;
-      wifi_manager_start_connect(currentSettings.wifi_ssid.c_str(), currentSettings.wifi_pass.c_str(), 30000);
-    }
+  if (!hasAnyKnownWiFiNetwork()) {
+    Serial.println("[WiFi] No remembered WiFi networks configured; skipping weather update.");
+  } else {
+    weather_job_active = true;
+    weather_ran_once = false;
+    wifi_manager_start_known_networks(15000);
+  }
+}
+
+lvgl_lock();
+switch (wifi_manager_state()) {
+  case WIFI_MGR_CONNECTING: {
+    const bool on = ((millis() / 400) % 2) == 0;
+    lv_obj_set_style_text_color(
+      ui_WiFiLabel,
+      lv_color_hex(on ? 0x41C7FF : 0x005578),
+      LV_PART_MAIN | LV_STATE_DEFAULT
+    );
+    break;
   }
 
-  lvgl_lock();
-  switch (wifi_manager_state()) {
-    case WIFI_MGR_CONNECTING: {
-      const bool on = ((millis() / 400) % 2) == 0;
-      lv_obj_set_style_text_color(ui_WiFiLabel, lv_color_hex(on ? 0x41C7FF : 0x005578), LV_PART_MAIN | LV_STATE_DEFAULT);
-      break;
-    }
-    case WIFI_MGR_CONNECTED:
-      lv_obj_set_style_text_color(ui_WiFiLabel, lv_color_hex(0x41C7FF), LV_PART_MAIN | LV_STATE_DEFAULT);
-      break;
-    default:
-      lv_obj_set_style_text_color(ui_WiFiLabel, lv_color_hex(0x005578), LV_PART_MAIN | LV_STATE_DEFAULT);
-      break;
-  }
-  lvgl_unlock();
+  case WIFI_MGR_CONNECTED:
+    lv_obj_set_style_text_color(
+      ui_WiFiLabel,
+      lv_color_hex(0x41C7FF),
+      LV_PART_MAIN | LV_STATE_DEFAULT
+    );
+    break;
+
+  case WIFI_MGR_FAILED:
+    lv_obj_set_style_text_color(
+      ui_WiFiLabel,
+      lv_color_hex(0x9A3442),
+      LV_PART_MAIN | LV_STATE_DEFAULT
+    );
+    break;
+
+  default:
+    lv_obj_set_style_text_color(
+      ui_WiFiLabel,
+      lv_color_hex(0x005578),
+      LV_PART_MAIN | LV_STATE_DEFAULT
+    );
+    break;
+}
+lvgl_unlock();
 
   if (weather_job_active && wifi_manager_is_connected() && !weather_ran_once) {
     weather_ran_once = true;

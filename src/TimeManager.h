@@ -17,3 +17,8 @@ bool time_manager_bootstrap_system_time_from_rtc();
 bool time_manager_write_rtc_from_system_time();
 
 bool time_manager_read_rtc_epoch(time_t *outEpoch);
+
+// Apply a fixed local offset, in seconds east of UTC, to the C library TZ rules.
+// RTC/system epoch remains UTC; this only affects localtime()/strftime() display.
+// Example: UK summer time is +3600, so localtime() becomes UTC+1.
+bool time_manager_apply_timezone_offset_seconds(int32_t offsetSeconds);

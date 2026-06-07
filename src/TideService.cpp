@@ -9,16 +9,13 @@
 #include <stdlib.h>   // getenv, setenv, unsetenv
 #include <time.h>     // tzset, difftime
 
-  
-
 static constexpr const char* PREF_NS          = "tide";
 static constexpr const char* KEY_LAST_FETCH   = "lastFetchUtc";
 static constexpr time_t      TIME_VALID_CUTOFF = 1'600'000'000; // ~2020
 
 // How many samples we push into the UI (must be <= TIDE_MAX_SAMPLES in ui_MainScreen.cpp)
 static constexpr uint16_t TIDE_UI_MAX_SAMPLES = 96;
-
-static constexpr const char* TIDE_CACHE_PATH    = "/tide.json";
+static constexpr const char* TIDE_CACHE_PATH  = "/tide.json";
 
 TideService::TideService(const char* apiKey, double lat, double lng)
 : _apiKey(apiKey), _lat(lat), _lng(lng) {}
@@ -37,7 +34,7 @@ static bool loadTideStateFromFile(const char* path, TideState& state)
         return false;
     }
 
-    DynamicJsonDocument doc(1024); // enough for a small extremes array
+    DynamicJsonDocument doc(1024);
     DeserializationError err = deserializeJson(doc, file);
     file.close();
 
@@ -112,9 +109,16 @@ static bool saveTideStateToFile(const char* path, const TideState& state)
     return true;
 }
 
+bool TideService::saveCachedState(const TideState& state)
+{
+    return saveTideStateToFile(TIDE_CACHE_PATH, state);
+}
 
+bool TideService::loadCachedState(TideState& state)
+{
+    return loadTideStateFromFile(TIDE_CACHE_PATH, state);
+}
 
-// Decide whether we’re *allowed* to hit the API now.
 bool TideService::canFetchNow(time_t nowUtc, uint32_t& lastFetchOut) {
     if (nowUtc < TIME_VALID_CUTOFF) {
         Serial.printf("[TideService] canFetchNow: nowUtc=%ld < cutoff=%ld -> false\n",
@@ -136,7 +140,7 @@ bool TideService::canFetchNow(time_t nowUtc, uint32_t& lastFetchOut) {
 
     if (lastFetchOut == 0) {
         Serial.println("[TideService] canFetchNow: no previous fetch, allowed immediately");
-        return true;  // never fetched before
+        return true;
     }
 
     uint32_t elapsed = static_cast<uint32_t>(nowUtc - static_cast<time_t>(lastFetchOut));
@@ -148,9 +152,6 @@ bool TideService::canFetchNow(time_t nowUtc, uint32_t& lastFetchOut) {
     return elapsed >= MIN_REQUEST_INTERVAL_SEC;
 }
 
-
-// Build a regular time grid of tide heights from discrete extremes.
-// Returns false if there isn't enough data to build a curve.
 static bool buildTideSamplesFromExtremes(
     const TideState& state,
     float*           outHeights,
@@ -179,9 +180,8 @@ static bool buildTideSamplesFromExtremes(
     }
 
     double spanSec = difftime(last, first);
-    // Start with our global max; if that implies <60s spacing, reduce.
     uint16_t targetSamples = maxSamples;
-    double minStep = 60.0; // don't bother with < 1-minute resolution
+    double minStep = 60.0;
 
     double rawStep = spanSec / static_cast<double>(targetSamples - 1);
     if (rawStep < minStep) {
@@ -190,7 +190,7 @@ static bool buildTideSamplesFromExtremes(
         rawStep = spanSec / static_cast<double>(targetSamples - 1);
     }
 
-    uint32_t stepSeconds = static_cast<uint32_t>(rawStep + 0.5); // round
+    uint32_t stepSeconds = static_cast<uint32_t>(rawStep + 0.5);
     if (stepSeconds == 0) stepSeconds = 60;
 
     outFirstSampleUtc = first;
@@ -201,7 +201,6 @@ static bool buildTideSamplesFromExtremes(
     for (uint16_t i = 0; i < outCount; ++i) {
         time_t t = outFirstSampleUtc + static_cast<time_t>(i) * static_cast<time_t>(stepSeconds);
 
-        // Find the segment [extremes[k], extremes[k+1]] that covers t
         while (k + 1 < state.count && state.extremes[k + 1].timeUtc < t) {
             ++k;
         }
@@ -227,11 +226,6 @@ static bool buildTideSamplesFromExtremes(
     return true;
 }
 
-// Take the current TideState and push a curve into the main screen UI.
-
-
-
-// Persist the fact that we succeeded just now.
 void TideService::recordSuccessfulFetch(time_t nowUtc) {
     if (nowUtc < TIME_VALID_CUTOFF) {
         Serial.printf("[TideService] recordSuccessfulFetch: nowUtc=%ld < cutoff, ignoring\n",
@@ -253,7 +247,6 @@ void TideService::recordSuccessfulFetch(time_t nowUtc) {
                   static_cast<unsigned long>(stored));
 }
 
-
 TideUpdateResult TideService::update(uint16_t horizonHours, TideState& outState) {
     time_t nowUtc = time(nullptr);
     Serial.printf("[TideService] update() called at %ld (UTC), horizon=%u h\n",
@@ -273,60 +266,54 @@ TideUpdateResult TideService::update(uint16_t horizonHours, TideState& outState)
                   allowed ? "true" : "false",
                   static_cast<unsigned>(lastFetch));
 
-if (!allowed) {
-    uint32_t elapsed = (lastFetch == 0)
-        ? 0U
-        : static_cast<uint32_t>(nowUtc - static_cast<time_t>(lastFetch));
-    Serial.printf("[TideService] SkippedRateLimit: elapsed=%u s, minInterval=%u s\n",
-                  static_cast<unsigned>(elapsed),
-                  static_cast<unsigned>(MIN_REQUEST_INTERVAL_SEC));
+    if (!allowed) {
+        uint32_t elapsed = (lastFetch == 0)
+            ? 0U
+            : static_cast<uint32_t>(nowUtc - static_cast<time_t>(lastFetch));
+        Serial.printf("[TideService] SkippedRateLimit: elapsed=%u s, minInterval=%u s\n",
+                      static_cast<unsigned>(elapsed),
+                      static_cast<unsigned>(MIN_REQUEST_INTERVAL_SEC));
 
-    // Try to rehydrate outState from tide.json cache
-    if (loadTideStateFromFile(TIDE_CACHE_PATH, outState) && outState.count >= 2) {
-        Serial.printf("[TideService] SkippedRateLimit: loaded %u cached extremes from %s\n",
-                      static_cast<unsigned>(outState.count),
-                      TIDE_CACHE_PATH);
+        if (loadTideStateFromFile(TIDE_CACHE_PATH, outState) && outState.count >= 2) {
+            Serial.printf("[TideService] SkippedRateLimit: loaded %u cached extremes from %s\n",
+                          static_cast<unsigned>(outState.count),
+                          TIDE_CACHE_PATH);
+            return TideUpdateResult::SkippedRateLimit;
+        }
 
-        // We have valid cached data, no need to hit the API
-        return TideUpdateResult::SkippedRateLimit;
+        Serial.println("[TideService] SkippedRateLimit: no valid cache; overriding rate limit and fetching now");
     }
-
-    // No valid cache: override the rate limit once and fall through to HTTP fetch
-    Serial.println("[TideService] SkippedRateLimit: no valid cache; overriding rate limit and fetching now");
-    // Note: no 'return' here – we continue into the network code below.
-}
 
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("[TideService] NetworkError: WiFi not connected");
         return TideUpdateResult::NetworkError;
     }
 
-// Construct Stormglass URL with some history so the curve starts in the past
-const uint16_t HISTORY_HOURS = 12;
+    const uint16_t HISTORY_HOURS = 12;
 
-time_t startUtc = nowUtc - static_cast<time_t>(HISTORY_HOURS) * 3600;
-if (startUtc < TIME_VALID_CUTOFF) {
-    startUtc = TIME_VALID_CUTOFF;
-}
+    time_t startUtc = nowUtc - static_cast<time_t>(HISTORY_HOURS) * 3600;
+    if (startUtc < TIME_VALID_CUTOFF) {
+        startUtc = TIME_VALID_CUTOFF;
+    }
 
-time_t endUtc = nowUtc + static_cast<time_t>(horizonHours) * 3600;
+    time_t endUtc = nowUtc + static_cast<time_t>(horizonHours) * 3600;
 
-String url = "https://api.stormglass.io/v2/tide/extremes/point?";
-url += "lat=";
-url += String(_lat, 6);
-url += "&lng=";
-url += String(_lng, 6);
-url += "&start=";
-url += String(static_cast<uint32_t>(startUtc));
-url += "&end=";
-url += String(static_cast<uint32_t>(endUtc));
-url += "&datum=MSL";
+    String url = "https://api.stormglass.io/v2/tide/extremes/point?";
+    url += "lat=";
+    url += String(_lat, 6);
+    url += "&lng=";
+    url += String(_lng, 6);
+    url += "&start=";
+    url += String(static_cast<uint32_t>(startUtc));
+    url += "&end=";
+    url += String(static_cast<uint32_t>(endUtc));
+    url += "&datum=MSL";
 
     Serial.print("[TideService] Requesting URL: ");
     Serial.println(url);
 
     WiFiClientSecure client;
-    client.setInsecure(); // TODO: cert if you want full TLS verification
+    client.setInsecure();
 
     HTTPClient https;
     if (!https.begin(client, url)) {
@@ -375,8 +362,8 @@ url += "&datum=MSL";
     for (JsonObject obj : data) {
         if (count >= TideState::MAX_EXTREMES) break;
 
-        const char* typeStr = obj["type"];   // "high" / "low"
-        const char* timeStr = obj["time"];   // ISO8601
+        const char* typeStr = obj["type"];
+        const char* timeStr = obj["time"];
         float height = obj["height"] | 0.0f;
 
         if (!typeStr || !timeStr) {
@@ -394,7 +381,6 @@ url += "&datum=MSL";
         t.tm_year -= 1900;
         t.tm_mon  -= 1;
 
-        // Convert ISO8601 to epoch in UTC (ESP32 tz dance)
         char* oldTZ = getenv("TZ");
         setenv("TZ", "UTC0", 1);
         tzset();
@@ -419,30 +405,27 @@ url += "&datum=MSL";
         e.isHigh  = (strcmp(typeStr, "high") == 0);
     }
 
-   outState.count        = count;
-outState.fetchedAtUtc = nowUtc;
+    outState.count        = count;
+    outState.fetchedAtUtc = nowUtc;
 
-Serial.printf("[TideService] Parsed %u extremes (skipped: badTime=%u, missing=%u)\n",
-              static_cast<unsigned>(count),
-              static_cast<unsigned>(skippedBadTime),
-              static_cast<unsigned>(skippedMissingFields));
+    Serial.printf("[TideService] Parsed %u extremes (skipped: badTime=%u, missing=%u)\n",
+                  static_cast<unsigned>(count),
+                  static_cast<unsigned>(skippedBadTime),
+                  static_cast<unsigned>(skippedMissingFields));
 
-if (count < 2) {
-    Serial.println("[TideService] Not enough extremes to be useful (need >= 2)");
-    return TideUpdateResult::ParseError;
-}
+    if (count < 2) {
+        Serial.println("[TideService] Not enough extremes to be useful (need >= 2)");
+        return TideUpdateResult::ParseError;
+    }
 
-// Keep using Preferences for rate-limiting
-recordSuccessfulFetch(nowUtc);
+    recordSuccessfulFetch(nowUtc);
 
-// Persist tide state to its own cache file
-if (!saveTideStateToFile(TIDE_CACHE_PATH, outState)) {
-    Serial.println("[TideService] Warning: failed to persist tide state to tide.json");
-}
+    if (!saveTideStateToFile(TIDE_CACHE_PATH, outState)) {
+        Serial.println("[TideService] Warning: failed to persist tide state to tide.json");
+    }
 
-Serial.printf("[TideService] Parsed %u extremes, recorded fetch time, and saved cache\n",
-              static_cast<unsigned>(count));
+    Serial.printf("[TideService] Parsed %u extremes, recorded fetch time, and saved cache\n",
+                  static_cast<unsigned>(count));
 
-// NOTE: no UI calls here. Caller decides what to do with outState.
-return TideUpdateResult::Ok;
+    return TideUpdateResult::Ok;
 }

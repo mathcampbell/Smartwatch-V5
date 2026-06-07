@@ -18,12 +18,11 @@ static constexpr int16_t PREVIEW_H = 50;
 static constexpr int16_t PREVIEW_X = (SCREEN_W - PREVIEW_W) / 2;
 static constexpr int16_t PREVIEW_Y = 54;
 
-// Wide enough to type comfortably, but positioned within the circular safe area.
-// 238px height gives LVGL enough room for the spacebar row.
+// Width looked about right in the photo. Negative Y is intentional: y=0 was still too low.
 static constexpr int16_t KEYBOARD_W = 404;
 static constexpr int16_t KEYBOARD_H = 238;
 static constexpr int16_t KEYBOARD_X = (SCREEN_W - KEYBOARD_W) / 2;
-static constexpr int16_t KEYBOARD_Y = 112;
+static constexpr int16_t KEYBOARD_Y = -55;
 
 static lv_obj_t* s_screen = nullptr;
 static lv_obj_t* s_overlay = nullptr;

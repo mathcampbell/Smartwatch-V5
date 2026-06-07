@@ -1,10 +1,8 @@
 #include "uiWeatherScreen.h"
 
-#include "ui.h"                 // ui_MainScreen, ui_ClockScreen, etc + _ui_screen_change
+#include "ui.h"
 #include "ui_ClockScreen.h"
-//#include "ui_MusicControls.c"
 #include "ui_Settings.h"
-
 #include "WeatherManager.h"
 
 #include <Arduino.h>
@@ -14,57 +12,110 @@
 static constexpr int16_t SCR_W = 466;
 static constexpr int16_t SCR_H = 466;
 
-// Background image is now smaller to speed decode + leave room for nav ring
-static constexpr int16_t BG_SZ = 350;
+// Large enough to feel like a real weather backdrop, but still inside the ring.
+static constexpr int16_t BG_SZ = 414;
 
-// Ring band thickness (visual)
-static constexpr int16_t RING_W = 58;     // ring stroke width
-static constexpr int16_t IND_W  = 18;     // indicator stroke width
-
-// Arc geometry: 300° sweep like your other screens
-static constexpr int16_t ARC_ROT = 120;   // rotation
-static constexpr int16_t ARC_SWEEP = 300; // background arc angles 0..300
-
-// Segments: 5
+// Thinner than the old 58px ring so it doesn't dominate the weather content.
+static constexpr int16_t RING_W = 38;
+static constexpr int16_t ARC_ROT = 120;
+static constexpr int16_t ARC_SWEEP = 300;
 static constexpr int16_t SEG_COUNT = 5;
 static constexpr int16_t ARC_RANGE_MAX = 500;
-static constexpr int16_t SEG_SIZE = ARC_RANGE_MAX / SEG_COUNT; // 100
-static constexpr int16_t SEG_GAP_DEG = 6;                 // gap between segments (degrees)
-static constexpr int16_t SEG_SPAN_DEG = ARC_SWEEP / SEG_COUNT; // 60 for 300°/5
+static constexpr int16_t SEG_SIZE = ARC_RANGE_MAX / SEG_COUNT;
+static constexpr int16_t SEG_GAP_DEG = 6;
 
+static constexpr int16_t FORECAST_COUNT = WEATHER_FORECAST_DAYS;
+static constexpr int16_t FORECAST_CARD_W = 62;
+static constexpr int16_t FORECAST_CARD_H = 82;
+static constexpr int16_t FORECAST_ROW_Y = 315;
+static constexpr int16_t FORECAST_START_X = 53;
+static constexpr int16_t FORECAST_GAP = 12;
 
 // ---------- LVGL objects ----------
 lv_obj_t* ui_WeatherScreen = nullptr;
 
-static lv_obj_t* s_bg = nullptr;           // background image (350x350)
-static lv_obj_t* s_arc = nullptr;          // outer arc menu
-static lv_obj_t* s_selLabel = nullptr;     // selection label (optional)
+static lv_obj_t* s_bg = nullptr;
+static lv_obj_t* s_scrim = nullptr;
+static lv_obj_t* s_arc = nullptr;
+static lv_obj_t* s_selLabel = nullptr;
 
 static lv_obj_t* s_tempMain = nullptr;
 static lv_obj_t* s_tempShadow = nullptr;
-
 static lv_obj_t* s_condMain = nullptr;
 static lv_obj_t* s_condShadow = nullptr;
-
 static lv_obj_t* s_minmaxMain = nullptr;
 static lv_obj_t* s_minmaxShadow = nullptr;
 
-// Change detection (so we don’t spam setters)
+static lv_obj_t* s_forecastCard[FORECAST_COUNT] = {};
+static lv_obj_t* s_forecastDay[FORECAST_COUNT] = {};
+static lv_obj_t* s_forecastIcon[FORECAST_COUNT] = {};
+static lv_obj_t* s_forecastTemp[FORECAST_COUNT] = {};
+
+// Change detection
 static uint16_t s_lastId = 0xFFFF;
 static unsigned long s_lastDt = 0;
 static String s_lastIcon;
 static String s_lastTemp;
 static String s_lastCond;
+static String s_lastMin;
+static String s_lastMax;
+static String s_lastForecastSignature;
 
 // ---------- Helpers ----------
 static const char* pick_bg(uint16_t id, const String& icon);
 static const char* pick_label_for_arc_value(int v);
 static void set_shadow_label_text(lv_obj_t* shadow, lv_obj_t* main_lbl);
-
-// ---------- Arc callbacks ----------
 static void weather_arc_value_changed(lv_event_t* e);
 static void weather_arc_released(lv_event_t* e);
 static void weather_arc_draw(lv_event_t* e);
+
+static String forecast_signature()
+{
+    uint8_t count = 0;
+    const WeatherForecastDay* days = WeatherForecastGet(count);
+
+    String sig;
+    sig.reserve(96);
+    sig += String(count);
+    for (uint8_t i = 0; i < count && i < FORECAST_COUNT; ++i) {
+        sig += '|';
+        sig += days[i].dt;
+        sig += ':';
+        sig += days[i].temperature;
+        sig += ':';
+        sig += days[i].icon;
+        sig += ':';
+        sig += days[i].id;
+    }
+    return sig;
+}
+
+static void style_forecast_card(lv_obj_t* card)
+{
+    lv_obj_set_style_bg_color(card, lv_color_hex(0x111A25), 0);
+    lv_obj_set_style_bg_opa(card, LV_OPA_70, 0);
+    lv_obj_set_style_border_width(card, 1, 0);
+    lv_obj_set_style_border_color(card, lv_color_hex(0x2A4056), 0);
+    lv_obj_set_style_radius(card, 18, 0);
+    lv_obj_set_style_pad_all(card, 4, 0);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+static void set_forecast_slot(uint8_t i, const WeatherForecastDay* d)
+{
+    if (i >= FORECAST_COUNT) return;
+
+    if (!d) {
+        lv_label_set_text(s_forecastDay[i], "--");
+        lv_image_set_src(s_forecastIcon[i], getMeteoconIcon(666, false));
+        lv_label_set_text(s_forecastTemp[i], "--°");
+        return;
+    }
+
+    lv_label_set_text(s_forecastDay[i], d->dayLabel.c_str());
+    lv_image_set_src(s_forecastIcon[i], getMeteoconIcon(d->id, false));
+    lv_label_set_text(s_forecastTemp[i], d->temperature.c_str());
+}
 
 void ui_WeatherScreen_screen_init(void)
 {
@@ -73,78 +124,61 @@ void ui_WeatherScreen_screen_init(void)
     ui_WeatherScreen = lv_obj_create(NULL);
     lv_obj_clear_flag(ui_WeatherScreen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(ui_WeatherScreen, SCR_W, SCR_H);
-
-    // Base styling: dark surround
     lv_obj_set_style_bg_color(ui_WeatherScreen, lv_color_hex(0x05070A), 0);
     lv_obj_set_style_bg_opa(ui_WeatherScreen, LV_OPA_COVER, 0);
 
-    // --- Background image (centered, smaller) ---
+    // --- Background weather image ---
     s_bg = lv_image_create(ui_WeatherScreen);
     lv_obj_set_size(s_bg, BG_SZ, BG_SZ);
     lv_obj_center(s_bg);
-
-    // A default so the screen isn’t blank at boot
     lv_image_set_src(s_bg, "A:/lvgl/weather/cloudy-bg.jpg");
+
+    // A translucent scrim keeps text readable regardless of weather image.
+    s_scrim = lv_obj_create(ui_WeatherScreen);
+    lv_obj_remove_style_all(s_scrim);
+    lv_obj_set_size(s_scrim, BG_SZ, BG_SZ);
+    lv_obj_center(s_scrim);
+    lv_obj_set_style_radius(s_scrim, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(s_scrim, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(s_scrim, LV_OPA_30, 0);
+    lv_obj_clear_flag(s_scrim, LV_OBJ_FLAG_SCROLLABLE);
 
     // --- Outer ring arc menu ---
     s_arc = lv_arc_create(ui_WeatherScreen);
     lv_obj_set_size(s_arc, SCR_W, SCR_H);
     lv_obj_center(s_arc);
-
     lv_arc_set_rotation(s_arc, ARC_ROT);
     lv_arc_set_bg_angles(s_arc, 0, ARC_SWEEP);
-    // Use discrete logical range: 0..4 (one per segment)
     lv_arc_set_range(s_arc, 0, SEG_COUNT - 1);
-
-    // Start on “Weather” (segment 4)
     lv_arc_set_value(s_arc, SEG_COUNT - 1);
-
-    // Make it a “selector” – we don’t want a knob, and we don’t want scrolling
     lv_obj_clear_flag(s_arc, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Hide knob
-// Keep arc for touch input, but we custom-draw everything.
-lv_obj_set_style_arc_opa(s_arc, LV_OPA_TRANSP, LV_PART_MAIN);
-lv_obj_set_style_arc_opa(s_arc, LV_OPA_TRANSP, LV_PART_INDICATOR);
-lv_obj_set_style_bg_opa(s_arc, LV_OPA_TRANSP, LV_PART_KNOB);
-lv_obj_set_style_pad_all(s_arc, 0, 0);
-
-    // Ring styling
-    lv_obj_set_style_arc_color(s_arc, lv_color_hex(0x0C1118), LV_PART_MAIN);
-    lv_obj_set_style_arc_opa(s_arc, LV_OPA_COVER, LV_PART_MAIN);
-
-    // Indicator styling (brighter)
-    lv_obj_set_style_arc_color(s_arc, lv_color_hex(0x2A9DFF), LV_PART_INDICATOR);
-    lv_obj_set_style_arc_opa(s_arc, LV_OPA_COVER, LV_PART_INDICATOR);
-
-    // Optional: remove knob completely (some themes still show it unless you kill its opa)
+    lv_obj_set_style_arc_opa(s_arc, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_arc_opa(s_arc, LV_OPA_TRANSP, LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(s_arc, LV_OPA_TRANSP, LV_PART_KNOB);
-
-    // Events
+    lv_obj_set_style_pad_all(s_arc, 0, 0);
     lv_obj_add_event_cb(s_arc, weather_arc_value_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(s_arc, weather_arc_released, LV_EVENT_RELEASED, NULL);
     lv_obj_add_event_cb(s_arc, weather_arc_released, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(s_arc, weather_arc_draw, LV_EVENT_DRAW_MAIN, NULL);
 
-
-    // Label showing current selection (small, in the ring area)
     s_selLabel = lv_label_create(ui_WeatherScreen);
     lv_obj_set_style_text_color(s_selLabel, lv_color_hex(0x9FB3C8), 0);
     lv_obj_set_style_text_font(s_selLabel, &lv_font_montserrat_16, 0);
     lv_label_set_text(s_selLabel, "Weather");
-    lv_obj_align(s_selLabel, LV_ALIGN_TOP_MID, 0, 20);
+    lv_obj_align(s_selLabel, LV_ALIGN_TOP_MID, 0, 25);
 
-    // --- Temp label + fake shadow ---
-    // Shadow style
+    // --- Shared shadow style ---
     static lv_style_t style_shadow;
     static bool shadow_inited = false;
     if(!shadow_inited) {
         shadow_inited = true;
         lv_style_init(&style_shadow);
-        lv_style_set_text_opa(&style_shadow, LV_OPA_40);
+        lv_style_set_text_opa(&style_shadow, LV_OPA_45);
         lv_style_set_text_color(&style_shadow, lv_color_black());
     }
 
+    // --- Current weather text ---
     s_tempShadow = lv_label_create(ui_WeatherScreen);
     lv_obj_add_style(s_tempShadow, &style_shadow, 0);
     lv_obj_set_style_text_font(s_tempShadow, &lv_font_montserrat_48, 0);
@@ -153,12 +187,10 @@ lv_obj_set_style_pad_all(s_arc, 0, 0);
     lv_obj_set_style_text_color(s_tempMain, lv_color_white(), 0);
     lv_obj_set_style_text_font(s_tempMain, &lv_font_montserrat_48, 0);
     lv_label_set_text(s_tempMain, "--°");
-
-    lv_obj_align(s_tempMain, LV_ALIGN_CENTER, 0, -50);
+    lv_obj_align(s_tempMain, LV_ALIGN_CENTER, 0, -72);
     set_shadow_label_text(s_tempShadow, s_tempMain);
     lv_obj_align_to(s_tempShadow, s_tempMain, LV_ALIGN_TOP_LEFT, 2, 2);
 
-    // --- Condition label + shadow ---
     s_condShadow = lv_label_create(ui_WeatherScreen);
     lv_obj_add_style(s_condShadow, &style_shadow, 0);
     lv_obj_set_style_text_font(s_condShadow, &lv_font_montserrat_22, 0);
@@ -166,28 +198,57 @@ lv_obj_set_style_pad_all(s_arc, 0, 0);
     s_condMain = lv_label_create(ui_WeatherScreen);
     lv_obj_set_style_text_color(s_condMain, lv_color_white(), 0);
     lv_obj_set_style_text_font(s_condMain, &lv_font_montserrat_22, 0);
+    lv_obj_set_width(s_condMain, 310);
+    lv_label_set_long_mode(s_condMain, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_label_set_text(s_condMain, "Weather");
-
-    lv_obj_align_to(s_condMain, s_tempMain, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
+    lv_obj_align_to(s_condMain, s_tempMain, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
     set_shadow_label_text(s_condShadow, s_condMain);
     lv_obj_align_to(s_condShadow, s_condMain, LV_ALIGN_TOP_LEFT, 2, 2);
 
-    // --- Min/max label + shadow (placeholder) ---
     s_minmaxShadow = lv_label_create(ui_WeatherScreen);
     lv_obj_add_style(s_minmaxShadow, &style_shadow, 0);
     lv_obj_set_style_text_font(s_minmaxShadow, &lv_font_montserrat_18, 0);
 
     s_minmaxMain = lv_label_create(ui_WeatherScreen);
-    lv_obj_set_style_text_color(s_minmaxMain, lv_color_white(), 0);
+    lv_obj_set_style_text_color(s_minmaxMain, lv_color_hex(0xD8E8F8), 0);
     lv_obj_set_style_text_font(s_minmaxMain, &lv_font_montserrat_18, 0);
     lv_label_set_text(s_minmaxMain, "--° / --°");
-
-    lv_obj_align_to(s_minmaxMain, s_condMain, LV_ALIGN_OUT_BOTTOM_MID, 0, 6);
+    lv_obj_align_to(s_minmaxMain, s_condMain, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
     set_shadow_label_text(s_minmaxShadow, s_minmaxMain);
     lv_obj_align_to(s_minmaxShadow, s_minmaxMain, LV_ALIGN_TOP_LEFT, 2, 2);
 
-    // Prime the selector label immediately
+    // --- Five day forecast row ---
+    for (uint8_t i = 0; i < FORECAST_COUNT; ++i) {
+        const int16_t x = FORECAST_START_X + i * (FORECAST_CARD_W + FORECAST_GAP);
+
+        s_forecastCard[i] = lv_obj_create(ui_WeatherScreen);
+        lv_obj_set_size(s_forecastCard[i], FORECAST_CARD_W, FORECAST_CARD_H);
+        lv_obj_set_pos(s_forecastCard[i], x, FORECAST_ROW_Y);
+        style_forecast_card(s_forecastCard[i]);
+
+        s_forecastDay[i] = lv_label_create(s_forecastCard[i]);
+        lv_obj_set_style_text_color(s_forecastDay[i], lv_color_hex(0xB9D7F2), 0);
+        lv_obj_set_style_text_font(s_forecastDay[i], &lv_font_montserrat_12, 0);
+        lv_label_set_text(s_forecastDay[i], "--");
+        lv_obj_align(s_forecastDay[i], LV_ALIGN_TOP_MID, 0, 2);
+
+        s_forecastIcon[i] = lv_image_create(s_forecastCard[i]);
+        lv_obj_set_size(s_forecastIcon[i], 32, 32);
+        lv_image_set_src(s_forecastIcon[i], getMeteoconIcon(666, false));
+        lv_obj_align(s_forecastIcon[i], LV_ALIGN_CENTER, 0, -2);
+
+        s_forecastTemp[i] = lv_label_create(s_forecastCard[i]);
+        lv_obj_set_style_text_color(s_forecastTemp[i], lv_color_white(), 0);
+        lv_obj_set_style_text_font(s_forecastTemp[i], &lv_font_montserrat_16, 0);
+        lv_label_set_text(s_forecastTemp[i], "--°");
+        lv_obj_align(s_forecastTemp[i], LV_ALIGN_BOTTOM_MID, 0, -2);
+    }
+
     lv_obj_send_event(s_arc, LV_EVENT_VALUE_CHANGED, NULL);
+    s_lastId = 0xFFFF;
+    s_lastDt = 0;
+    s_lastForecastSignature = "";
+    ui_WeatherScreen_tick();
 }
 
 void ui_WeatherScreen_tick(void)
@@ -196,13 +257,17 @@ void ui_WeatherScreen_tick(void)
     if(lv_screen_active() != ui_WeatherScreen) return;
 
     const WeatherData& wd = WeatherGet();
+    const String forecastSig = forecast_signature();
 
     const bool changed =
         (wd.id != s_lastId) ||
         (wd.dt != s_lastDt) ||
         (wd.icon != s_lastIcon) ||
         (wd.temperature != s_lastTemp) ||
-        (wd.condition != s_lastCond);
+        (wd.condition != s_lastCond) ||
+        (wd.temp_min != s_lastMin) ||
+        (wd.temp_max != s_lastMax) ||
+        (forecastSig != s_lastForecastSignature);
 
     if(!changed) return;
 
@@ -211,35 +276,44 @@ void ui_WeatherScreen_tick(void)
     s_lastIcon = wd.icon;
     s_lastTemp = wd.temperature;
     s_lastCond = wd.condition;
+    s_lastMin = wd.temp_min;
+    s_lastMax = wd.temp_max;
+    s_lastForecastSignature = forecastSig;
 
-    // Background
     if(s_bg) {
         const char* path = pick_bg(wd.id, wd.icon);
         lv_image_set_src(s_bg, path);
     }
 
-    // Temp
     if(s_tempMain && s_tempShadow) {
-        lv_label_set_text(s_tempMain, wd.temperature.c_str());
+        lv_label_set_text(s_tempMain, wd.temperature.length() ? wd.temperature.c_str() : "--°");
         set_shadow_label_text(s_tempShadow, s_tempMain);
-        lv_obj_align(s_tempMain, LV_ALIGN_CENTER, 0, -50);
+        lv_obj_align(s_tempMain, LV_ALIGN_CENTER, 0, -72);
         lv_obj_align_to(s_tempShadow, s_tempMain, LV_ALIGN_TOP_LEFT, 2, 2);
     }
 
-    // Condition
     if(s_condMain && s_condShadow) {
-        lv_label_set_text(s_condMain, wd.condition.c_str());
+        lv_label_set_text(s_condMain, wd.condition.length() ? wd.condition.c_str() : "Weather");
         set_shadow_label_text(s_condShadow, s_condMain);
-        lv_obj_align_to(s_condMain, s_tempMain, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
+        lv_obj_align_to(s_condMain, s_tempMain, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
         lv_obj_align_to(s_condShadow, s_condMain, LV_ALIGN_TOP_LEFT, 2, 2);
     }
 
-    // Min/max placeholder (swap later when you have real fields)
     if(s_minmaxMain && s_minmaxShadow) {
-        lv_label_set_text(s_minmaxMain, "--° / --°");
+        String minmax = wd.temp_min;
+        if(minmax.length() == 0) minmax = "--°";
+        minmax += " / ";
+        minmax += wd.temp_max.length() ? wd.temp_max : "--°";
+        lv_label_set_text(s_minmaxMain, minmax.c_str());
         set_shadow_label_text(s_minmaxShadow, s_minmaxMain);
-        lv_obj_align_to(s_minmaxMain, s_condMain, LV_ALIGN_OUT_BOTTOM_MID, 0, 6);
+        lv_obj_align_to(s_minmaxMain, s_condMain, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
         lv_obj_align_to(s_minmaxShadow, s_minmaxMain, LV_ALIGN_TOP_LEFT, 2, 2);
+    }
+
+    uint8_t count = 0;
+    const WeatherForecastDay* days = WeatherForecastGet(count);
+    for (uint8_t i = 0; i < FORECAST_COUNT; ++i) {
+        set_forecast_slot(i, (i < count) ? &days[i] : nullptr);
     }
 }
 
@@ -249,75 +323,57 @@ static void weather_arc_value_changed(lv_event_t* e)
     lv_obj_t* arc = lv_event_get_target_obj(e);
     int v = (int)lv_arc_get_value(arc);
 
-    // Clamp and snap to integer segment index 0..4
     if(v < 0) v = 0;
     if(v >= SEG_COUNT) v = SEG_COUNT - 1;
 
-    // Update label from snapped value
-    const char* txt = pick_label_for_arc_value(v * SEG_SIZE); // reuse your existing mapping
+    const char* txt = pick_label_for_arc_value(v * SEG_SIZE);
     if(s_selLabel && txt) lv_label_set_text(s_selLabel, txt);
 
-    // Ensure it stays snapped (prevents intermediate values during drag)
     if(lv_arc_get_value(arc) != v) {
         lv_arc_set_value(arc, v);
         return;
     }
 
-    // Redraw the segmented ring highlight immediately
     lv_obj_invalidate(arc);
 }
 
 static void weather_arc_released(lv_event_t* e)
 {
     lv_obj_t* arc = lv_event_get_target_obj(e);
-int seg = (int)lv_arc_get_value(arc); // 0..4
+    int seg = (int)lv_arc_get_value(arc);
 
-switch(seg) {
-    case 0: // Main
-        _ui_screen_change(&ui_MainScreen, LV_SCR_LOAD_ANIM_NONE, 0, 0, ui_MainScreen_screen_init);
-        break;
-    case 1: // Clock
-        _ui_screen_change(&ui_ClockScreen, LV_SCR_LOAD_ANIM_NONE, 0, 0, ui_ClockScreen_screen_init);
-        break;
-    case 2: // Music
-        _ui_screen_change(&ui_MusicControls, LV_SCR_LOAD_ANIM_NONE, 0, 0, ui_MusicControls_screen_init);
-        break;
-    case 3: // Settings
-        _ui_screen_change(&ui_Settings, LV_SCR_LOAD_ANIM_NONE, 0, 0, ui_Settings_screen_init);
-        break;
-    case 4: // Weather (already here)
-    default:
-        return;
-}
+    switch(seg) {
+        case 0:
+            _ui_screen_change(&ui_MainScreen, LV_SCR_LOAD_ANIM_NONE, 0, 0, ui_MainScreen_screen_init);
+            break;
+        case 1:
+            _ui_screen_change(&ui_ClockScreen, LV_SCR_LOAD_ANIM_NONE, 0, 0, ui_ClockScreen_screen_init);
+            break;
+        case 2:
+            _ui_screen_change(&ui_MusicControls, LV_SCR_LOAD_ANIM_NONE, 0, 0, ui_MusicControls_screen_init);
+            break;
+        case 3:
+            _ui_screen_change(&ui_Settings, LV_SCR_LOAD_ANIM_NONE, 0, 0, ui_Settings_screen_init);
+            break;
+        case 4:
+        default:
+            return;
+    }
 }
 
 // ---------- Background mapping ----------
 static const char* pick_bg(uint16_t id, const String& icon)
 {
-    // OpenWeather icon codes are like "01d", "02n"
     const bool night = (icon.length() >= 3 && icon.charAt(2) == 'n');
 
     if(id == 800) return night ? "A:/lvgl/weather/clear-night-bg.jpg" : "A:/lvgl/weather/clear-day-bg.jpg";
     if(id == 801) return night ? "A:/lvgl/weather/patchy-night-bg.jpg" : "A:/lvgl/weather/patchy-day-bg.jpg";
     if(id == 802 || id == 803 || id == 804) return "A:/lvgl/weather/cloudy-bg.jpg";
-
     if(id / 100 == 2) return "A:/lvgl/weather/thunder-bg.jpg";
     if(id / 100 == 3) return "A:/lvgl/weather/drizzle-bg.jpg";
-
-    if(id / 100 == 5) {
-        if(id == 500) return "A:/lvgl/weather/light-rain-bg.jpg";
-        return "A:/lvgl/weather/rain-bg.jpg";
-    }
-
-    if(id / 100 == 6) {
-        // 611-616 are sleet-ish in OWM
-        if(id >= 611 && id <= 616) return "A:/lvgl/weather/sleet-bg.jpg";
-        return "A:/lvgl/weather/snow-bg.jpg";
-    }
-
+    if(id / 100 == 5) return (id == 500) ? "A:/lvgl/weather/light-rain-bg.jpg" : "A:/lvgl/weather/rain-bg.jpg";
+    if(id / 100 == 6) return (id >= 611 && id <= 616) ? "A:/lvgl/weather/sleet-bg.jpg" : "A:/lvgl/weather/snow-bg.jpg";
     if(id / 100 == 7) return "A:/lvgl/weather/fog-bg.jpg";
-
-    // fallback
     return "A:/lvgl/weather/cloudy-bg.jpg";
 }
 
@@ -341,7 +397,6 @@ static void set_shadow_label_text(lv_obj_t* shadow, lv_obj_t* main_lbl)
 static void weather_arc_draw(lv_event_t* e)
 {
     lv_obj_t* obj = lv_event_get_target_obj(e);
-
     lv_layer_t* layer = lv_event_get_layer(e);
     if(!layer) return;
 
@@ -350,44 +405,39 @@ static void weather_arc_draw(lv_event_t* e)
 
     const int32_t w = lv_area_get_width(&a);
     const int32_t h = lv_area_get_height(&a);
-
     const int32_t cx = a.x1 + w / 2;
     const int32_t cy = a.y1 + h / 2;
+    const int32_t r = (LV_MIN(w, h) / 2) - (RING_W / 2) - 2;
+    const int sel = (int)lv_arc_get_value(obj);
 
-    // Radius to the middle of the stroke
-    const int32_t r = (LV_MIN(w, h) / 2) - (RING_W / 2) - 1;
-
-    const int sel = (int)lv_arc_get_value(obj); // 0..4
-
-    // Base segment
     lv_draw_arc_dsc_t base;
     lv_draw_arc_dsc_init(&base);
     base.center.x = (lv_coord_t)cx;
     base.center.y = (lv_coord_t)cy;
     base.radius   = (lv_coord_t)r;
     base.width    = (lv_coord_t)RING_W;
-    base.opa      = LV_OPA_COVER;
-    base.color    = lv_color_hex(0x0C1118);
+    base.opa      = LV_OPA_85;
+    base.color    = lv_color_hex(0x0B111A);
     base.rounded  = 0;
 
-    // Highlight segment
     lv_draw_arc_dsc_t hi = base;
+    hi.opa = LV_OPA_COVER;
     hi.color = lv_color_hex(0x2A9DFF);
 
-    const int32_t seg_span = ARC_SWEEP / SEG_COUNT;   // 60
-    const int32_t gap      = SEG_GAP_DEG;             // e.g. 6
+    const int32_t seg_span = ARC_SWEEP / SEG_COUNT;
+    const int32_t gap = SEG_GAP_DEG;
 
     for(int i = 0; i < SEG_COUNT; i++) {
         int32_t start = ARC_ROT + (i * seg_span) + (gap / 2);
-        int32_t end   = ARC_ROT + ((i + 1) * seg_span) - (gap / 2);
+        int32_t end = ARC_ROT + ((i + 1) * seg_span) - (gap / 2);
 
         base.start_angle = start;
-        base.end_angle   = end;
+        base.end_angle = end;
         lv_draw_arc(layer, &base);
 
         if(i == sel) {
             hi.start_angle = start;
-            hi.end_angle   = end;
+            hi.end_angle = end;
             lv_draw_arc(layer, &hi);
         }
     }

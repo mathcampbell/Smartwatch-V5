@@ -16,14 +16,14 @@ static constexpr int16_t MODAL_Y_HIDDEN = SCREEN_H + 8;
 static constexpr int16_t PREVIEW_W = 330;
 static constexpr int16_t PREVIEW_H = 50;
 static constexpr int16_t PREVIEW_X = (SCREEN_W - PREVIEW_W) / 2;
-static constexpr int16_t PREVIEW_Y = 68;
+static constexpr int16_t PREVIEW_Y = 54;
 
-// Width looked about right in the photo. Keep the keyboard high enough that
-// the full object is visible within the circular display.
+// Wide enough to type comfortably, but positioned within the circular safe area.
+// 238px height gives LVGL enough room for the spacebar row.
 static constexpr int16_t KEYBOARD_W = 404;
-static constexpr int16_t KEYBOARD_H = 214;
+static constexpr int16_t KEYBOARD_H = 238;
 static constexpr int16_t KEYBOARD_X = (SCREEN_W - KEYBOARD_W) / 2;
-static constexpr int16_t KEYBOARD_Y = 150;
+static constexpr int16_t KEYBOARD_Y = 112;
 
 static lv_obj_t* s_screen = nullptr;
 static lv_obj_t* s_overlay = nullptr;

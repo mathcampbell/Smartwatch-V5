@@ -102,7 +102,7 @@ void mainarc_select(lv_event_t * e)
         // Fourth section (300-400) - Change to Settings
          lv_arc_set_start_angle(ui_MainArcSettingsMenu, 300);
          lv_arc_set_end_angle(ui_MainArcSettingsMenu, 360);
-        _ui_screen_change(&ui_Settings, LV_SCR_LOAD_ANIM_FADE_ON, 100, 0, ui_Settings_screen_init);
+         _ui_screen_change(&ui_Settings, LV_SCR_LOAD_ANIM_NONE, 200, 50, ui_Settings_screen_init);
     } else if(arcvalue >= 400 && arcvalue <= 500) {
         // Fifth section (400-500) - Currently unused
         // You can leave this empty or add functionality later

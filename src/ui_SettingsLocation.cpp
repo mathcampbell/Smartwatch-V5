@@ -149,7 +149,7 @@ static void lookup_timer_cb(lv_timer_t* timer)
     if (wifi_manager_state() == WIFI_MGR_FAILED) {
         s_lookupPending = false;
         stop_lookup_timer();
-        set_status("No remembered WiFi reachable");
+        set_status("No saved WiFi network reachable");
         return;
     }
 
@@ -181,13 +181,13 @@ static void start_location_lookup(const String& query)
     }
 
     if (!has_any_configured_wifi()) {
-        set_status("WiFi not configured");
+        set_status("No saved WiFi networks");
         return;
     }
 
     set_status("Connecting WiFi...");
     s_lookupPending = true;
-    wifi_manager_start_known_networks(15000);
+    wifi_manager_start_known_networks(30000);
 
     if (!s_lookupTimer) {
         s_lookupTimer = lv_timer_create(lookup_timer_cb, 250, nullptr);

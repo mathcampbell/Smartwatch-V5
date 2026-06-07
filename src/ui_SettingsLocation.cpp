@@ -18,6 +18,12 @@ static uint8_t s_resultCount = 0;
 static String s_pendingQuery;
 static bool s_lookupPending = false;
 
+static bool has_any_configured_wifi()
+{
+    if (!currentSettings.known_wifi_networks.empty()) return true;
+    return currentSettings.wifi_ssid.length() > 0;
+}
+
 static void update_coords_label()
 {
     if (!s_coordsLabel) return;
@@ -143,11 +149,14 @@ static void lookup_timer_cb(lv_timer_t* timer)
     if (wifi_manager_state() == WIFI_MGR_FAILED) {
         s_lookupPending = false;
         stop_lookup_timer();
-        set_status("WiFi connection failed");
+        set_status("No remembered WiFi reachable");
         return;
     }
 
-    set_status("Connecting WiFi...");
+    String msg = "Trying ";
+    msg += wifi_manager_current_ssid();
+    msg += "...";
+    set_status_string(msg);
 }
 
 static void start_location_lookup(const String& query)
@@ -171,14 +180,14 @@ static void start_location_lookup(const String& query)
         return;
     }
 
-    if (currentSettings.wifi_ssid.length() == 0) {
+    if (!has_any_configured_wifi()) {
         set_status("WiFi not configured");
         return;
     }
 
     set_status("Connecting WiFi...");
     s_lookupPending = true;
-    wifi_manager_start_connect(currentSettings.wifi_ssid.c_str(), currentSettings.wifi_pass.c_str(), 30000);
+    wifi_manager_start_known_networks(15000);
 
     if (!s_lookupTimer) {
         s_lookupTimer = lv_timer_create(lookup_timer_cb, 250, nullptr);

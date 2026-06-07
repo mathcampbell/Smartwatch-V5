@@ -415,14 +415,15 @@ void setup()
   }
 
   PowerManager::instance().setIrqReadFn(readPmuIrqFromExpander, true);
+  time_manager_begin();
+  time_manager_bootstrap_system_time_from_rtc();
 
   clock_init();
   Serial.println("clock_init success");
   ui_init();
   Serial.println("ui_init success");
 
-  time_manager_begin();
-  time_manager_bootstrap_system_time_from_rtc();
+ 
   checkWeatherFlag = true;
 
   lvglMutex = xSemaphoreCreateMutex();

@@ -4,6 +4,20 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
+static String s_lastError;
+
+const String& LocationGeocoderLastError()
+{
+    return s_lastError;
+}
+
+static void setError(const String& msg)
+{
+    s_lastError = msg;
+    Serial.print("[Geocoder] ");
+    Serial.println(s_lastError);
+}
+
 static String urlEncode(const String& in)
 {
     String out;
@@ -35,25 +49,29 @@ bool LocationGeocoderSearch(const String& query,
                             uint8_t maxResults,
                             uint8_t& outCount)
 {
+    s_lastError = "";
     outCount = 0;
 
     if (!results || maxResults == 0) {
-        Serial.println("[Geocoder] Invalid result buffer.");
+        setError("Invalid result buffer");
         return false;
     }
 
-    if (query.length() < 2) {
-        Serial.println("[Geocoder] Query too short.");
+    String trimmedQuery = query;
+    trimmedQuery.trim();
+
+    if (trimmedQuery.length() < 2) {
+        setError("Query too short");
         return false;
     }
 
     if (token.length() == 0) {
-        Serial.println("[Geocoder] Missing OpenWeather token.");
+        setError("Weather API key missing");
         return false;
     }
 
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("[Geocoder] WiFi not connected.");
+        setError("WiFi not connected");
         return false;
     }
 
@@ -63,21 +81,31 @@ bool LocationGeocoderSearch(const String& query,
     const uint8_t limit = maxResults > LOCATION_GEOCODER_MAX_RESULTS ? LOCATION_GEOCODER_MAX_RESULTS : maxResults;
 
     String url = "http://api.openweathermap.org/geo/1.0/direct?q=";
-    url += urlEncode(query);
+    url += urlEncode(trimmedQuery);
     url += "&limit=";
     url += String(limit);
     url += "&appid=";
     url += token;
 
+    Serial.print("[Geocoder] Requesting location for: ");
+    Serial.println(trimmedQuery);
+
     if (!http.begin(client, url)) {
-        Serial.println("[Geocoder] http.begin failed.");
+        setError("HTTP begin failed");
         return false;
     }
 
     int code = http.GET();
     if (code != HTTP_CODE_OK) {
-        Serial.printf("[Geocoder] HTTP GET failed: %d\n", code);
+        String body = http.getString();
         http.end();
+        String msg = "HTTP ";
+        msg += String(code);
+        if (body.length() > 0) {
+            msg += ": ";
+            msg += body.substring(0, 80);
+        }
+        setError(msg);
         return false;
     }
 
@@ -86,13 +114,15 @@ bool LocationGeocoderSearch(const String& query,
     http.end();
 
     if (err) {
-        Serial.printf("[Geocoder] JSON parse failed: %s\n", err.c_str());
+        String msg = "JSON parse failed: ";
+        msg += err.c_str();
+        setError(msg);
         return false;
     }
 
     JsonArray arr = doc.as<JsonArray>();
     if (arr.isNull()) {
-        Serial.println("[Geocoder] Response was not an array.");
+        setError("Response was not an array");
         return false;
     }
 
@@ -111,6 +141,11 @@ bool LocationGeocoderSearch(const String& query,
         }
     }
 
+    if (outCount == 0) {
+        setError("No matching locations");
+        return false;
+    }
+
     Serial.printf("[Geocoder] Found %u location result(s).\n", outCount);
-    return outCount > 0;
+    return true;
 }

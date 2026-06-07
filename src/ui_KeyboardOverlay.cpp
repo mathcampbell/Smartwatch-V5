@@ -18,11 +18,12 @@ static constexpr int16_t PREVIEW_H = 50;
 static constexpr int16_t PREVIEW_X = (SCREEN_W - PREVIEW_W) / 2;
 static constexpr int16_t PREVIEW_Y = 68;
 
-// Width looked about right in the photo; move vertically to the centre.
+// Width looked about right in the photo. Keep the keyboard high enough that
+// the full object is visible within the circular display.
 static constexpr int16_t KEYBOARD_W = 404;
 static constexpr int16_t KEYBOARD_H = 214;
 static constexpr int16_t KEYBOARD_X = (SCREEN_W - KEYBOARD_W) / 2;
-static constexpr int16_t KEYBOARD_Y = (SCREEN_H - KEYBOARD_H) / 2;
+static constexpr int16_t KEYBOARD_Y = 150;
 
 static lv_obj_t* s_screen = nullptr;
 static lv_obj_t* s_overlay = nullptr;
@@ -32,6 +33,14 @@ static lv_obj_t* s_keyboard = nullptr;
 static lv_obj_t* s_activeTextarea = nullptr;
 static lv_obj_t* s_activeScrollParent = nullptr;
 static bool s_visible = false;
+
+static void force_keyboard_geometry()
+{
+    if (!s_keyboard) return;
+    lv_obj_set_size(s_keyboard, KEYBOARD_W, KEYBOARD_H);
+    lv_obj_set_pos(s_keyboard, KEYBOARD_X, KEYBOARD_Y);
+    lv_obj_move_foreground(s_keyboard);
+}
 
 static void modal_y_anim_cb(void* obj, int32_t y)
 {
@@ -69,6 +78,7 @@ static void keyboard_event_cb(lv_event_t* e)
 
     if (code == LV_EVENT_VALUE_CHANGED) {
         copy_preview_to_target();
+        force_keyboard_geometry();
         return;
     }
 
@@ -138,10 +148,9 @@ static void create_overlay_if_needed()
     lv_obj_set_style_pad_all(s_preview, 10, 0);
 
     s_keyboard = lv_keyboard_create(s_modal);
-    lv_obj_set_size(s_keyboard, KEYBOARD_W, KEYBOARD_H);
-    lv_obj_set_pos(s_keyboard, KEYBOARD_X, KEYBOARD_Y);
     lv_keyboard_set_mode(s_keyboard, LV_KEYBOARD_MODE_TEXT_LOWER);
     lv_keyboard_set_textarea(s_keyboard, s_preview);
+    force_keyboard_geometry();
     lv_obj_add_event_cb(s_keyboard, keyboard_event_cb, LV_EVENT_ALL, nullptr);
 
     lv_obj_move_foreground(s_overlay);
@@ -159,6 +168,7 @@ static void show_keyboard(lv_obj_t* textarea, lv_obj_t* scroll_parent)
 
     copy_target_to_preview();
     lv_keyboard_set_textarea(s_keyboard, s_preview);
+    force_keyboard_geometry();
     lv_obj_move_foreground(s_overlay);
 
     lv_anim_t a;
@@ -170,6 +180,7 @@ static void show_keyboard(lv_obj_t* textarea, lv_obj_t* scroll_parent)
     lv_anim_start(&a);
 
     lv_obj_add_state(s_preview, LV_STATE_FOCUSED);
+    force_keyboard_geometry();
     s_visible = true;
 }
 

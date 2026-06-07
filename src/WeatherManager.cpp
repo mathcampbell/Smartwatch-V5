@@ -11,7 +11,7 @@
 #include "WeatherManager.h"
 #include "SettingsManager.h"
 #include "TideService.h"
-#include "TimeZoneManager.h"
+#include "TimeManager.h"
 #include "ui.h"
 
 static volatile bool s_tideCurveDirty = false;
@@ -58,7 +58,7 @@ void WeatherManagerBegin()
     latitude = currentSettings.weather_lat;
     longitude = currentSettings.weather_long;
 
-    timezone_manager_apply_from_settings();
+    time_manager_apply_timezone_offset_seconds(currentSettings.timezone_offset_seconds);
 
     if (g_tideService) {
         delete g_tideService;
@@ -377,7 +377,7 @@ static bool fetchCurrentWeatherHTTP(WeatherData& out)
         currentSettings.timezone_offset_seconds = tzOffset;
         saveSettingsDataToFile("/settings.json", currentSettings);
     }
-    timezone_manager_apply_offset_seconds(tzOffset);
+    time_manager_apply_timezone_offset_seconds(tzOffset);
 
     float temp = doc["main"]["temp"] | NAN;
     uint16_t id = doc["weather"][0]["id"] | 666;

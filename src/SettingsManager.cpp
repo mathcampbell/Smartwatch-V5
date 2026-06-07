@@ -1,7 +1,23 @@
 #include "SettingsManager.h"
 
+#include <algorithm>
+
 const char* filePath = "/settings.json";
 SettingsData currentSettings;
+
+static void seedLegacyWifiIntoKnownNetworks(SettingsData& settings)
+{
+    if (settings.wifi_ssid.length() == 0) return;
+
+    for (const auto& network : settings.known_wifi_networks) {
+        if (network.ssid == settings.wifi_ssid) return;
+    }
+
+    WiFiNetwork legacy;
+    legacy.ssid = settings.wifi_ssid;
+    legacy.password = settings.wifi_pass;
+    settings.known_wifi_networks.push_back(legacy);
+}
 
 bool loadSettingsDataFromFile(const char* filePath, SettingsData& settings)
 {
@@ -41,8 +57,12 @@ bool loadSettingsDataFromFile(const char* filePath, SettingsData& settings)
         WiFiNetwork wifiNetwork;
         wifiNetwork.ssid = network["ssid"].as<String>();
         wifiNetwork.password = network["password"].as<String>();
-        settings.known_wifi_networks.push_back(wifiNetwork);
+        if (wifiNetwork.ssid.length() > 0) {
+            settings.known_wifi_networks.push_back(wifiNetwork);
+        }
     }
+
+    seedLegacyWifiIntoKnownNetworks(settings);
 
     file.close();
     Serial.println("Setting data loaded successfully");
@@ -74,6 +94,7 @@ void saveSettingsDataToFile(const char* filePath, const SettingsData& settings)
 
     JsonArray wifiNetworks = doc.createNestedArray("known_wifi_networks");
     for (const auto& network : settings.known_wifi_networks) {
+        if (network.ssid.length() == 0) continue;
         JsonObject networkObj = wifiNetworks.createNestedObject();
         networkObj["ssid"] = network.ssid;
         networkObj["password"] = network.password;
@@ -114,4 +135,108 @@ void initializeSettingsData()
     {
         loadSettingsDataFromFile("/settings.json", currentSettings);
     }
+}
+
+int findKnownWiFiNetworkIndex(const String& ssid)
+{
+    for (size_t i = 0; i < currentSettings.known_wifi_networks.size(); ++i) {
+        if (currentSettings.known_wifi_networks[i].ssid == ssid) return (int)i;
+    }
+    return -1;
+}
+
+bool addOrUpdateKnownWiFiNetwork(const String& ssid, const String& password, bool makeFirst)
+{
+    String cleanSsid = ssid;
+    cleanSsid.trim();
+    if (cleanSsid.length() == 0) return false;
+
+    int idx = findKnownWiFiNetworkIndex(cleanSsid);
+    if (idx >= 0) {
+        currentSettings.known_wifi_networks[idx].password = password;
+        if (makeFirst && idx > 0) {
+            WiFiNetwork network = currentSettings.known_wifi_networks[idx];
+            currentSettings.known_wifi_networks.erase(currentSettings.known_wifi_networks.begin() + idx);
+            currentSettings.known_wifi_networks.insert(currentSettings.known_wifi_networks.begin(), network);
+        }
+    } else {
+        WiFiNetwork network;
+        network.ssid = cleanSsid;
+        network.password = password;
+        if (makeFirst) currentSettings.known_wifi_networks.insert(currentSettings.known_wifi_networks.begin(), network);
+        else currentSettings.known_wifi_networks.push_back(network);
+    }
+
+    currentSettings.wifi_ssid = currentSettings.known_wifi_networks.front().ssid;
+    currentSettings.wifi_ssd = currentSettings.wifi_ssid;
+    currentSettings.wifi_pass = currentSettings.known_wifi_networks.front().password;
+    saveSettingsDataToFile("/settings.json", currentSettings);
+    return true;
+}
+
+bool removeKnownWiFiNetwork(const String& ssid)
+{
+    int idx = findKnownWiFiNetworkIndex(ssid);
+    if (idx < 0) return false;
+
+    currentSettings.known_wifi_networks.erase(currentSettings.known_wifi_networks.begin() + idx);
+    if (!currentSettings.known_wifi_networks.empty()) {
+        currentSettings.wifi_ssid = currentSettings.known_wifi_networks.front().ssid;
+        currentSettings.wifi_ssd = currentSettings.wifi_ssid;
+        currentSettings.wifi_pass = currentSettings.known_wifi_networks.front().password;
+    } else {
+        currentSettings.wifi_ssid = "";
+        currentSettings.wifi_ssd = "";
+        currentSettings.wifi_pass = "";
+    }
+
+    saveSettingsDataToFile("/settings.json", currentSettings);
+    return true;
+}
+
+bool moveKnownWiFiNetworkUp(const String& ssid)
+{
+    int idx = findKnownWiFiNetworkIndex(ssid);
+    if (idx <= 0) return false;
+
+    std::swap(currentSettings.known_wifi_networks[idx], currentSettings.known_wifi_networks[idx - 1]);
+    currentSettings.wifi_ssid = currentSettings.known_wifi_networks.front().ssid;
+    currentSettings.wifi_ssd = currentSettings.wifi_ssid;
+    currentSettings.wifi_pass = currentSettings.known_wifi_networks.front().password;
+    saveSettingsDataToFile("/settings.json", currentSettings);
+    return true;
+}
+
+bool moveKnownWiFiNetworkDown(const String& ssid)
+{
+    int idx = findKnownWiFiNetworkIndex(ssid);
+    if (idx < 0 || idx >= (int)currentSettings.known_wifi_networks.size() - 1) return false;
+
+    std::swap(currentSettings.known_wifi_networks[idx], currentSettings.known_wifi_networks[idx + 1]);
+    currentSettings.wifi_ssid = currentSettings.known_wifi_networks.front().ssid;
+    currentSettings.wifi_ssd = currentSettings.wifi_ssid;
+    currentSettings.wifi_pass = currentSettings.known_wifi_networks.front().password;
+    saveSettingsDataToFile("/settings.json", currentSettings);
+    return true;
+}
+
+bool promoteKnownWiFiNetwork(const String& ssid)
+{
+    int idx = findKnownWiFiNetworkIndex(ssid);
+    if (idx < 0) return false;
+    if (idx == 0) return true;
+
+    WiFiNetwork network = currentSettings.known_wifi_networks[idx];
+    currentSettings.known_wifi_networks.erase(currentSettings.known_wifi_networks.begin() + idx);
+    currentSettings.known_wifi_networks.insert(currentSettings.known_wifi_networks.begin(), network);
+    currentSettings.wifi_ssid = network.ssid;
+    currentSettings.wifi_ssd = network.ssid;
+    currentSettings.wifi_pass = network.password;
+    saveSettingsDataToFile("/settings.json", currentSettings);
+    return true;
+}
+
+bool hasAnyKnownWiFiNetwork()
+{
+    return !currentSettings.known_wifi_networks.empty() || currentSettings.wifi_ssid.length() > 0;
 }

@@ -10,6 +10,8 @@ static volatile int8_t g_rssi = -127;
 
 static uint32_t g_start_ms = 0;
 static uint32_t g_timeout_ms = 0;
+static uint32_t g_failed_since_ms = 0;
+static constexpr uint32_t WIFI_FAILURE_VISIBLE_MS = 5000;
 
 static String g_ssid;
 static String g_pass;
@@ -35,6 +37,18 @@ static void ensure_wifi_started()
         WiFi.setSleep(false);
         g_wifi_started = true;
     }
+}
+
+static void enter_failed_state()
+{
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    g_wifi_started = false;
+    g_trying_known_networks = false;
+    g_try_networks.clear();
+    g_state = WIFI_MGR_FAILED;
+    g_failed_since_ms = millis();
+    g_rssi = -127;
 }
 
 static bool start_current_network()
@@ -112,7 +126,7 @@ bool wifi_manager_start_known_networks(uint32_t timeout_ms_per_network)
 
     if (g_try_networks.empty()) {
         Serial.println("[WiFiMgr] No remembered networks configured.");
-        g_state = WIFI_MGR_FAILED;
+        enter_failed_state();
         return false;
     }
 
@@ -124,6 +138,13 @@ bool wifi_manager_start_known_networks(uint32_t timeout_ms_per_network)
 }
 
 void wifi_manager_tick() {
+    if (g_state == WIFI_MGR_FAILED) {
+        if ((millis() - g_failed_since_ms) >= WIFI_FAILURE_VISIBLE_MS) {
+            g_state = WIFI_MGR_OFF;
+        }
+        return;
+    }
+
     if (g_state != WIFI_MGR_CONNECTING) return;
 
     wl_status_t st = WiFi.status();
@@ -151,12 +172,7 @@ void wifi_manager_tick() {
         return;
     }
 
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
-    g_wifi_started = false;
-
-    g_state = WIFI_MGR_FAILED;
-    g_rssi = -127;
+    enter_failed_state();
 }
 
 void wifi_manager_disconnect(bool power_off) {
@@ -177,6 +193,11 @@ int8_t wifi_manager_rssi() { return g_rssi; }
 const char* wifi_manager_current_ssid()
 {
     return g_ssid.c_str();
+}
+
+bool wifi_manager_failure_visible()
+{
+    return g_state == WIFI_MGR_FAILED;
 }
 
 bool wifi_manager_is_connected() {

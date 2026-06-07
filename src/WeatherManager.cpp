@@ -70,17 +70,71 @@ void WeatherManagerBegin()
     } else {
         Serial.println("[Weather] Tide service not configured; missing API key or location.");
     }
+
+    WeatherLoadCached();
+    TideLoadCached();
+}
+
+bool WeatherLoadCached()
+{
+    if (!LittleFS.exists("/weather.json")) {
+        Serial.println("[Weather] No cached weather file available.");
+        return false;
+    }
+
+    if (!loadWeatherDataFromFile("/weather.json", currentWeatherData)) {
+        Serial.println("[Weather] Failed to load cached weather.");
+        return false;
+    }
+
+    if (currentWeatherData.temperature.length() == 0 || currentWeatherData.id == 0) {
+        Serial.println("[Weather] Cached weather exists but is incomplete.");
+        return false;
+    }
+
+    Serial.printf("[Weather] Loaded cached weather: temp=%s id=%u dt=%lu\n",
+                  currentWeatherData.temperature.c_str(),
+                  currentWeatherData.id,
+                  currentWeatherData.dt);
+    return true;
+}
+
+bool TideLoadCached()
+{
+    if (!g_tideService) {
+        Serial.println("[Tide] Tide service not configured; cannot load cached tide.");
+        return false;
+    }
+
+    if (!g_tideService->loadCachedState(g_tideState)) {
+        Serial.println("[Tide] No valid cached tide data available.");
+        return false;
+    }
+
+    Serial.printf("[Tide] Loaded cached tide: %u extremes\n", (unsigned)g_tideState.count);
+    WeatherManager_MarkTideCurveDirty();
+    return true;
 }
 
 bool WeatherUpdate()
 {
+    g_weatherUpdated = false;
+
+    // Keep stale data in RAM even when fresh update fails.
+    if (currentWeatherData.temperature.length() == 0) {
+        WeatherLoadCached();
+    }
+    if (g_tideState.count < 2) {
+        TideLoadCached();
+    }
+
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("[Weather] No WiFi; skipping update.");
+        Serial.println("[Weather] No WiFi; keeping cached data.");
         return false;
     }
 
     if (api_key.length() == 0 || latitude.length() == 0 || longitude.length() == 0) {
-        Serial.println("[Weather] Missing weather API key or location; skipping weather update.");
+        Serial.println("[Weather] Missing weather API key or location; keeping cached data.");
         return false;
     }
 
@@ -110,19 +164,23 @@ bool WeatherUpdate()
                 WeatherManager_MarkTideCurveDirty();
                 break;
             case TideUpdateResult::SkippedRateLimit:
+                Serial.println("[Tide] Tide fetch skipped; using cached tide.");
+                WeatherManager_MarkTideCurveDirty();
                 break;
             case TideUpdateResult::TimeNotReady:
-                Serial.println("[Tide] Time not ready yet, skipping tide update.");
+                Serial.println("[Tide] Time not ready yet, keeping cached tide.");
+                TideLoadCached();
                 break;
             case TideUpdateResult::NetworkError:
             case TideUpdateResult::HttpError:
             case TideUpdateResult::ParseError:
-                Serial.printf("[Tide] Tide update failed (%d)\n", (int)tr);
+                Serial.printf("[Tide] Tide update failed (%d); keeping cached tide.\n", (int)tr);
+                TideLoadCached();
                 break;
         }
     }
 
-    initializeWeatherData();
+    updateWeatherData();
     return g_weatherUpdated;
 }
 
@@ -207,52 +265,42 @@ void initializeWeatherData()
         defaultWeather.moonphase = "0";
         defaultWeather.lastUpdate = 0;
         defaultWeather.id = 666;
-
-        time_t currentTime = time(nullptr);
-        defaultWeather.dt = (currentTime == -1) ? 0 : static_cast<unsigned long>(currentTime);
+        defaultWeather.dt = 0;
         saveWeatherDataToFile(filePath, defaultWeather);
     }
 
-    updateWeatherData();
+    WeatherLoadCached();
 }
 
 void updateWeatherData()
 {
-    time_t currentTime = time(nullptr);
-    if (currentTime == -1) {
-        Serial.println("Failed to get system time. Skipping weather update.");
+    if (currentWeatherData.temperature.length() == 0) {
+        WeatherLoadCached();
+    }
+
+    Serial.printf("Weather data timestamp (UNIX): %lu\n", currentWeatherData.dt);
+    Serial.println("Fetching new weather data...");
+    Serial.printf("Free heap: %u, largest block: %u\n", esp_get_free_heap_size(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+
+    WeatherData freshWeather = currentWeatherData;
+    if (!fetchCurrentWeatherHTTP(freshWeather)) {
+        Serial.println("[Weather] fetchCurrentWeatherHTTP failed; keeping cached weather data.");
         return;
     }
 
-    if (!loadWeatherDataFromFile("/weather.json", currentWeatherData)) {
-        Serial.println("Failed to load weather data. Initializing defaults.");
-        currentWeatherData.dt = 0;
-    }
-
-    Serial.printf("Current time (UNIX): %ld\n", currentTime);
-    Serial.printf("Weather data timestamp (UNIX): %ld\n", currentWeatherData.dt);
-    Serial.printf("Time since last update (seconds): %ld\n", currentTime - currentWeatherData.dt);
-
-    if (currentWeatherData.dt == 0 || (currentTime - currentWeatherData.dt) >= 360) {
-        Serial.println("Fetching new weather data...");
-        Serial.printf("Free heap: %u, largest block: %u\n", esp_get_free_heap_size(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
-
-        if (!fetchCurrentWeatherHTTP(currentWeatherData)) {
-            Serial.println("[Weather] fetchCurrentWeatherHTTP failed");
-            return;
-        }
-
-        saveWeatherDataToFile("/weather.json", currentWeatherData);
-    } else {
-        Serial.println("Weather data is up-to-date. Skipping fetch.");
-    }
+    currentWeatherData = freshWeather;
+    saveWeatherDataToFile("/weather.json", currentWeatherData);
 
     Serial.println("Setting current Weather Data to display:");
-    lv_label_set_text(ui_WeatherLabel, currentWeatherData.temperature.c_str());
+    if (ui_WeatherLabel) {
+        lv_label_set_text(ui_WeatherLabel, currentWeatherData.temperature.c_str());
+    }
 
     const char* iconPath = getMeteoconIcon(currentWeatherData.id, true);
     Serial.printf("Icon path: %s\n", iconPath);
-    lv_img_set_src(ui_WeatherImage, iconPath);
+    if (ui_WeatherImage) {
+        lv_img_set_src(ui_WeatherImage, iconPath);
+    }
 
     Serial.printf("[UI] Setting temp label from currentWeatherData.temperature='%s' id=%u\n",
                   currentWeatherData.temperature.c_str(), currentWeatherData.id);
@@ -328,11 +376,14 @@ static bool fetchCurrentWeatherHTTP(WeatherData& out)
     float temp = doc["main"]["temp"] | NAN;
     uint16_t id = doc["weather"][0]["id"] | 666;
     const char* desc = doc["weather"][0]["description"] | "Unknown";
+    const char* icon = doc["weather"][0]["icon"] | "";
 
     out.temperature = String(temp, 1) + "°C";
     out.condition = desc;
+    out.icon = icon;
     out.id = id;
     out.dt = doc["dt"] | (unsigned long)time(nullptr);
+    out.lastUpdate = (unsigned long)time(nullptr);
     out.sunrise = strTime((time_t)(doc["sys"]["sunrise"] | 0));
     out.sunset = strTime((time_t)(doc["sys"]["sunset"] | 0));
     out.humidity = String((int)(doc["main"]["humidity"] | 0)) + "%";

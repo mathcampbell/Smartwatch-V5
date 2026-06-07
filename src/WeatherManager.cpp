@@ -11,9 +11,8 @@
 #include "WeatherManager.h"
 #include "SettingsManager.h"
 #include "TideService.h"
+#include "TimeZoneManager.h"
 #include "ui.h"
-
-#define TIME_OFFSET 1UL * 3600UL
 
 static volatile bool s_tideCurveDirty = false;
 static volatile bool g_weatherUpdated = false;
@@ -58,6 +57,8 @@ void WeatherManagerBegin()
     api_key = currentSettings.weather_api_key;
     latitude = currentSettings.weather_lat;
     longitude = currentSettings.weather_long;
+
+    timezone_manager_apply_from_settings();
 
     if (g_tideService) {
         delete g_tideService;
@@ -120,7 +121,6 @@ bool WeatherUpdate()
 {
     g_weatherUpdated = false;
 
-    // Keep stale data in RAM even when fresh update fails.
     if (currentWeatherData.temperature.length() == 0) {
         WeatherLoadCached();
     }
@@ -308,7 +308,6 @@ void updateWeatherData()
 
 String strTime(time_t unixTime)
 {
-    unixTime += TIME_OFFSET;
     return ctime(&unixTime);
 }
 
@@ -372,6 +371,13 @@ static bool fetchCurrentWeatherHTTP(WeatherData& out)
         Serial.printf("[Weather] JSON parse failed: %s\n", err.c_str());
         return false;
     }
+
+    int32_t tzOffset = doc["timezone"] | currentSettings.timezone_offset_seconds;
+    if (tzOffset != currentSettings.timezone_offset_seconds) {
+        currentSettings.timezone_offset_seconds = tzOffset;
+        saveSettingsDataToFile("/settings.json", currentSettings);
+    }
+    timezone_manager_apply_offset_seconds(tzOffset);
 
     float temp = doc["main"]["temp"] | NAN;
     uint16_t id = doc["weather"][0]["id"] | 666;

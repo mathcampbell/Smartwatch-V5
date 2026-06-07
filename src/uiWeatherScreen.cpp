@@ -97,7 +97,7 @@ static String forecast_signature()
 static void style_forecast_card(lv_obj_t* card)
 {
     lv_obj_set_style_bg_color(card, lv_color_hex(0x111A25), 0);
-    lv_obj_set_style_bg_opa(card, LV_OPA_55, 0);
+    lv_obj_set_style_bg_opa(card, LV_OPA_50, 0);
     lv_obj_set_style_border_width(card, 0, 0);
     lv_obj_set_style_border_color(card, lv_color_hex(0x2A4056), 0);
     lv_obj_set_style_radius(card, 16, 0);
@@ -237,7 +237,7 @@ void ui_WeatherScreen_screen_init(void)
     lv_obj_set_pos(s_forecastPanel, FORECAST_PANEL_X, FORECAST_PANEL_Y);
     lv_obj_set_style_radius(s_forecastPanel, 24, 0);
     lv_obj_set_style_bg_color(s_forecastPanel, lv_color_hex(0x071522), 0);
-    lv_obj_set_style_bg_opa(s_forecastPanel, LV_OPA_85, 0);
+    lv_obj_set_style_bg_opa(s_forecastPanel, LV_OPA_80, 0);
     lv_obj_set_style_border_width(s_forecastPanel, 1, 0);
     lv_obj_set_style_border_color(s_forecastPanel, lv_color_hex(0x1E5575), 0);
     lv_obj_set_style_border_opa(s_forecastPanel, LV_OPA_70, 0);

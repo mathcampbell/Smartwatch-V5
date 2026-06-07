@@ -5,14 +5,18 @@
 #include "LocationGeocoder.h"
 #include "SettingsManager.h"
 #include "WeatherManager.h"
+#include "WiFiManager.h"
 #include "ui_KeyboardOverlay.h"
 
 static lv_obj_t* s_locationTextarea = nullptr;
 static lv_obj_t* s_resultsList = nullptr;
 static lv_obj_t* s_coordsLabel = nullptr;
 static lv_obj_t* s_statusLabel = nullptr;
+static lv_timer_t* s_lookupTimer = nullptr;
 static LocationGeocodeResult s_results[LOCATION_GEOCODER_MAX_RESULTS];
 static uint8_t s_resultCount = 0;
+static String s_pendingQuery;
+static bool s_lookupPending = false;
 
 static void update_coords_label()
 {
@@ -33,6 +37,11 @@ static void update_coords_label()
 static void set_status(const char* text)
 {
     if (s_statusLabel) lv_label_set_text(s_statusLabel, text ? text : "");
+}
+
+static void set_status_string(const String& text)
+{
+    if (s_statusLabel) lv_label_set_text(s_statusLabel, text.c_str());
 }
 
 static void clear_results()
@@ -82,6 +91,100 @@ static void populate_results_list()
     else lv_obj_add_flag(s_resultsList, LV_OBJ_FLAG_HIDDEN);
 }
 
+static void stop_lookup_timer()
+{
+    if (s_lookupTimer) {
+        lv_timer_del(s_lookupTimer);
+        s_lookupTimer = nullptr;
+    }
+}
+
+static void perform_location_lookup()
+{
+    s_lookupPending = false;
+    stop_lookup_timer();
+
+    set_status("Searching...");
+
+    uint8_t count = 0;
+    const bool ok = LocationGeocoderSearch(s_pendingQuery,
+                                           currentSettings.weather_api_key,
+                                           s_results,
+                                           LOCATION_GEOCODER_MAX_RESULTS,
+                                           count);
+    s_resultCount = ok ? count : 0;
+
+    if (s_resultCount == 0) {
+        clear_results();
+        const String& err = LocationGeocoderLastError();
+        set_status_string(err.length() > 0 ? err : String("No matching locations"));
+        return;
+    }
+
+    set_status("Select a location");
+    populate_results_list();
+}
+
+static void lookup_timer_cb(lv_timer_t* timer)
+{
+    (void)timer;
+    wifi_manager_tick();
+
+    if (!s_lookupPending) {
+        stop_lookup_timer();
+        return;
+    }
+
+    if (wifi_manager_is_connected()) {
+        perform_location_lookup();
+        return;
+    }
+
+    if (wifi_manager_state() == WIFI_MGR_FAILED) {
+        s_lookupPending = false;
+        stop_lookup_timer();
+        set_status("WiFi connection failed");
+        return;
+    }
+
+    set_status("Connecting WiFi...");
+}
+
+static void start_location_lookup(const String& query)
+{
+    s_pendingQuery = query;
+    s_pendingQuery.trim();
+    clear_results();
+
+    if (s_pendingQuery.length() < 2) {
+        set_status("");
+        return;
+    }
+
+    if (currentSettings.weather_api_key.length() == 0) {
+        set_status("Weather API key missing");
+        return;
+    }
+
+    if (wifi_manager_is_connected()) {
+        perform_location_lookup();
+        return;
+    }
+
+    if (currentSettings.wifi_ssid.length() == 0) {
+        set_status("WiFi not configured");
+        return;
+    }
+
+    set_status("Connecting WiFi...");
+    s_lookupPending = true;
+    wifi_manager_start_connect(currentSettings.wifi_ssid.c_str(), currentSettings.wifi_pass.c_str(), 30000);
+
+    if (!s_lookupTimer) {
+        s_lookupTimer = lv_timer_create(lookup_timer_cb, 250, nullptr);
+    }
+}
+
 static void location_textarea_event_cb(lv_event_t* e)
 {
     lv_event_code_t code = lv_event_get_code(e);
@@ -94,32 +197,8 @@ static void location_textarea_event_cb(lv_event_t* e)
 
     if (code != LV_EVENT_READY) return;
 
-    const String query = lv_textarea_get_text(ta);
-    if (query.length() < 2) {
-        clear_results();
-        set_status("");
-        return;
-    }
-
-    set_status("Searching...");
     ui_keyboard_hide();
-
-    uint8_t count = 0;
-    const bool ok = LocationGeocoderSearch(query,
-                                           currentSettings.weather_api_key,
-                                           s_results,
-                                           LOCATION_GEOCODER_MAX_RESULTS,
-                                           count);
-    s_resultCount = ok ? count : 0;
-
-    if (s_resultCount == 0) {
-        clear_results();
-        set_status("No matching locations");
-        return;
-    }
-
-    set_status("Select a location");
-    populate_results_list();
+    start_location_lookup(lv_textarea_get_text(ta));
 }
 
 void ui_settings_add_location_controls(lv_obj_t* parent)

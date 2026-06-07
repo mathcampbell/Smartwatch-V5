@@ -18,7 +18,7 @@ static String g_pass;
 
 static bool g_wifi_started = false;
 static bool g_trying_known_networks = false;
-static uint32_t g_known_timeout_ms = 0;
+static uint32_t g_known_timeout_ms = 20000;
 static size_t g_known_index = 0;
 static std::vector<WiFiNetwork> g_try_networks;
 

@@ -1,3 +1,4 @@
 {
-  "C_Cpp.default.configurationProvider": "platformio.platformio-ide"
+  "C_Cpp.default.configurationProvider": "platformio.platformio-ide",
+  "C_Cpp.errorSquiggles": "disabled"
 }

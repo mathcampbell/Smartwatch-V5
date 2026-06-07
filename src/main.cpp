@@ -423,7 +423,48 @@ void setup()
   ui_init();
   Serial.println("ui_init success");
 
- 
+  // Rehydrate cached weather/tide UI after SquareLine/LVGL objects exist.
+// WeatherManagerBegin() may already have loaded the cache into RAM,
+// but the UI objects do not exist until after ui_init().
+if (WeatherLoadCached()) {
+  const WeatherData& wd = WeatherGet();
+
+  lvgl_lock();
+  ui_mainscreen_apply_weather(wd.id, wd.temperature.c_str());
+  lvgl_unlock();
+
+  Serial.println("[Boot] Applied cached weather to main screen.");
+}
+
+if (TideLoadCached()) {
+  float cachedTideHeights[128];
+  uint16_t cachedTideCount = 0;
+  time_t cachedTideFirstSampleUtc = 0;
+  uint32_t cachedTideStepSeconds = 0;
+
+  if (WeatherManager_GetTideCurve(
+        cachedTideHeights,
+        128,
+        cachedTideCount,
+        cachedTideFirstSampleUtc,
+        cachedTideStepSeconds
+      )) {
+    lvgl_lock();
+    ui_mainscreen_set_tide_curve(
+      cachedTideHeights,
+      cachedTideCount,
+      cachedTideFirstSampleUtc,
+      cachedTideStepSeconds
+    );
+    lvgl_unlock();
+
+    Serial.println("[Boot] Applied cached tide curve to main screen.");
+  } else {
+    Serial.println("[Boot] Cached tide existed but curve build failed.");
+  }
+}
+
+
   checkWeatherFlag = true;
 
   lvglMutex = xSemaphoreCreateMutex();
@@ -512,7 +553,7 @@ if (!weather_job_active && ((currentTime - last_weather_update >= 360000) || che
   } else {
     weather_job_active = true;
     weather_ran_once = false;
-    wifi_manager_start_known_networks(15000);
+    wifi_manager_start_known_networks(30000);
   }
 }
 

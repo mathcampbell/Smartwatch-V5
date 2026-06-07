@@ -39,7 +39,8 @@ static void force_keyboard_geometry()
 {
     if (!s_keyboard) return;
     lv_obj_set_size(s_keyboard, KEYBOARD_W, KEYBOARD_H);
-    lv_obj_set_pos(s_keyboard, KEYBOARD_X, KEYBOARD_Y);
+   // lv_obj_set_pos(s_keyboard, KEYBOARD_X, KEYBOARD_Y);
+   lv_obj_set_pos(s_keyboard, 0, KEYBOARD_Y);
     lv_obj_move_foreground(s_keyboard);
 }
 

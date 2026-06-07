@@ -18,11 +18,13 @@ static constexpr int16_t PREVIEW_H = 50;
 static constexpr int16_t PREVIEW_X = (SCREEN_W - PREVIEW_W) / 2;
 static constexpr int16_t PREVIEW_Y = 54;
 
-// Width looked about right in the photo. Negative Y is intentional: y=0 was still too low.
-static constexpr int16_t KEYBOARD_W = 400;
-static constexpr int16_t KEYBOARD_H = 238;
+// LVGL's keyboard layout ends up visually lower than its parent-space y value.
+// These values were tuned against the 466px round display to keep all rows
+// inside the circle while retaining near-full keyboard width.
+static constexpr int16_t KEYBOARD_W = 388;
+static constexpr int16_t KEYBOARD_H = 220;
 static constexpr int16_t KEYBOARD_X = (SCREEN_W - KEYBOARD_W) / 2;
-static constexpr int16_t KEYBOARD_Y = -100;
+static constexpr int16_t KEYBOARD_Y = -122;
 
 static lv_obj_t* s_screen = nullptr;
 static lv_obj_t* s_overlay = nullptr;

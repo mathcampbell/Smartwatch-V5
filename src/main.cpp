@@ -360,6 +360,7 @@ void setup()
   } else {
     Serial.println("[FS] LittleFS mounted");
     initializeSettingsData();
+    time_manager_apply_timezone_offset_seconds(currentSettings.timezone_offset_seconds);
     WeatherManagerBegin();
 
     Serial.println("[Settings] Loaded settings:");

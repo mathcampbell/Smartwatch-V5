@@ -10,7 +10,6 @@
 
 
 
-
 void mainarc_valuechange(lv_event_t * e)
 {
 	// Get the current value of the arc
@@ -100,9 +99,9 @@ void mainarc_select(lv_event_t * e)
         _ui_screen_change(&ui_MusicControls, LV_SCR_LOAD_ANIM_FADE_ON, 100, 0, ui_MusicControls_screen_init);
     } else if(arcvalue >= 300 && arcvalue < 400) {
         // Fourth section (300-400) - Change to Settings
-         lv_arc_set_start_angle(ui_MainArcSettingsMenu, 300);
-         lv_arc_set_end_angle(ui_MainArcSettingsMenu, 360);
-         _ui_screen_change(&ui_Settings, LV_SCR_LOAD_ANIM_NONE, 200, 50, ui_Settings_screen_init);
+        // Do not touch ui_MainArcSettingsMenu here: it belongs to the Settings screen
+        // and may not exist yet when navigating from the main screen.
+        _ui_screen_change(&ui_Settings, LV_SCR_LOAD_ANIM_NONE, 200, 50, ui_Settings_screen_init);
     } else if(arcvalue >= 400 && arcvalue <= 500) {
         // Fifth section (400-500) - Currently unused
         // You can leave this empty or add functionality later
@@ -262,22 +261,22 @@ void mainarcmusic_select(lv_event_t * e)
 
 void musictrack_release(lv_event_t * e)
 {
-	// Your code here
+    // Your code here
 }
 
 void playbutton_pressed(lv_event_t * e)
 {
-	// Your code here
+    // Your code here
 }
 
 void prevbutton_pressed(lv_event_t * e)
 {
-	// Your code here
+    // Your code here
 }
 
 void nextbutton_pressed(lv_event_t * e)
 {
-	// Your code here
+    // Your code here
 }
 
 void mainarcsettings_valuechange(lv_event_t * e)

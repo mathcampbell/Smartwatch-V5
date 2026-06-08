@@ -24,6 +24,7 @@ extern lv_obj_t * content_area;
 
 // Function prototypes
 void ui_Settings_screen_init(void);
+void ui_Settings_apply_compact_radial_layout(void);
 void create_radial_menu(void);
 void create_content_area(void);
 void arc_event_cb(lv_event_t * e);

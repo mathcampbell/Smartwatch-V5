@@ -10,6 +10,7 @@
 extern "C" {
 #endif
 
+void ui_MainScreen_reset_menu_default(void);
 void mainarc_valuechange(lv_event_t * e);
 void mainarc_select(lv_event_t * e);
 void mainarcclock_valuechange(lv_event_t * e);

@@ -14,7 +14,7 @@ static constexpr int16_t SCR_H = 466;
 static constexpr int16_t BG_SZ = 414;
 static constexpr int16_t BG_X = (SCR_W - BG_SZ) / 2;
 static constexpr int16_t BG_Y = 8;
-static constexpr int16_t FRAME_W = 180;
+static constexpr int16_t FRAME_W = 100;
 static constexpr int16_t RING_W = 16;
 static constexpr int16_t ARC_ROT = 130;
 static constexpr int16_t ARC_SWEEP = 190;
@@ -240,7 +240,7 @@ void ui_WeatherScreen_screen_init(void)
     lv_obj_set_style_text_align(s_locationLabel, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(s_locationLabel, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_label_set_text(s_locationLabel, compact_location().c_str());
-    lv_obj_align(s_locationLabel, LV_ALIGN_TOP_MID, 0, 19);
+    lv_obj_align(s_locationLabel, LV_ALIGN_TOP_MID, 0, 40);
 
     static lv_style_t style_shadow;
     static bool shadow_inited = false;

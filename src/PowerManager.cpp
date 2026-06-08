@@ -6,6 +6,7 @@
 #include <esp_system.h>
 #include <driver/gpio.h>
 #include "DisplayManager.h"
+#include "TimeManager.h"
 
 static constexpr gpio_num_t TP_INT_GPIO = GPIO_NUM_11;   // your TP_INT
 
@@ -192,29 +193,31 @@ void PowerManager::updateIrq_()
 
 void PowerManager::enterLightSleep()
 {
-  // 1) Quiesce your app peripherals here (keep it minimal)
-  // - turn off backlight
-  // - optionally pause LVGL tick / animations
-  // (Use YOUR existing backlight method)
- // DisplayManager::instance().setBrightness(0);
+  // 1) Quiesce app peripherals.
   DisplayManager::instance().setScreenOn(false);
-  // 2) Configure wake sources
+
+  // 2) Configure wake sources.
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
 
-  // Touch INT is almost always active-low; use pullup + wake on LOW
-  
-    pinMode((int)TP_INT_GPIO, INPUT_PULLUP);
-    // ext1 can wake from multiple pins; good even if we add another later
-    const uint64_t mask = (1ULL << (int)TP_INT_GPIO);
-    esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_LOW);
-  
+  // Touch INT is active-low; use pullup + wake on LOW.
+  pinMode((int)TP_INT_GPIO, INPUT_PULLUP);
+  const uint64_t mask = (1ULL << (int)TP_INT_GPIO);
+  esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_LOW);
 
-  // 3) Go to light sleep
+  // 3) Go to light sleep. ESP32 timekeeping can drift here, so do not trust
+  // the system clock blindly after this returns.
   esp_light_sleep_start();
 
- DisplayManager::instance().setScreenOn(true);
-  // 4) On wake: re-enable backlight (and anything else you turned off)
- // DisplayManager::instance().setBrightness(255);   // or whatever you store
+  // 4) On wake, immediately correct system time from the external RTC before
+  // the UI is redrawn. This keeps the displayed watch time tied to the PCF85063
+  // rather than the ESP32's light-sleep slow clock.
+  if (!time_manager_bootstrap_system_time_from_rtc()) {
+    Serial.println("[PowerManager] RTC resync after light sleep failed");
+  } else {
+    Serial.println("[PowerManager] RTC resync after light sleep ok");
+  }
+
+  DisplayManager::instance().setScreenOn(true);
 }
 
 void PowerManager::restart()

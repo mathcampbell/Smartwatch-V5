@@ -30,7 +30,7 @@ static constexpr int16_t FORECAST_PANEL_H = SCR_H - FORECAST_PANEL_Y;
 static constexpr int16_t FORECAST_CARD_W = 62;
 static constexpr int16_t FORECAST_CARD_H = 78;
 static constexpr int16_t FORECAST_ROW_Y = 10;
-static constexpr int16_t FORECAST_START_X = 40;
+static constexpr int16_t FORECAST_START_X = 54;
 static constexpr int16_t FORECAST_GAP = 12;
 
 lv_obj_t* ui_WeatherScreen = nullptr;
@@ -463,8 +463,8 @@ static void weather_frame_draw(lv_event_t* e)
 {
     lv_layer_t* layer = lv_event_get_layer(e);
     if(!layer) return;
-    const int32_t cx = BG_X + (BG_SZ / 2);
-    const int32_t cy = BG_Y + (BG_SZ / 2);
+    const int32_t cx = SCR_W / 2;
+    const int32_t cy = SCR_H / 2;
     const int32_t inner_radius = BG_SZ / 2;
     lv_draw_arc_dsc_t frame;
     lv_draw_arc_dsc_init(&frame);

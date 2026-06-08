@@ -14,10 +14,10 @@ static constexpr int16_t SCR_H = 466;
 static constexpr int16_t BG_SZ = 414;
 static constexpr int16_t BG_X = (SCR_W - BG_SZ) / 2;
 static constexpr int16_t BG_Y = 8;
-static constexpr int16_t FRAME_W = 100;
+static constexpr int16_t FRAME_W = 56;
 static constexpr int16_t RING_W = 16;
-static constexpr int16_t ARC_ROT = 130;
-static constexpr int16_t ARC_SWEEP = 190;
+static constexpr int16_t ARC_ROT = 158;
+static constexpr int16_t ARC_SWEEP = 180;
 static constexpr int16_t SEG_COUNT = 5;
 static constexpr int16_t ARC_RANGE_MAX = 500;
 static constexpr int16_t SEG_SIZE = ARC_RANGE_MAX / SEG_COUNT;
@@ -240,7 +240,7 @@ void ui_WeatherScreen_screen_init(void)
     lv_obj_set_style_text_align(s_locationLabel, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(s_locationLabel, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_label_set_text(s_locationLabel, compact_location().c_str());
-    lv_obj_align(s_locationLabel, LV_ALIGN_TOP_MID, 0, 40);
+    lv_obj_align(s_locationLabel, LV_ALIGN_TOP_MID, 0, 50);
 
     static lv_style_t style_shadow;
     static bool shadow_inited = false;
@@ -259,7 +259,7 @@ void ui_WeatherScreen_screen_init(void)
     lv_obj_set_style_text_color(s_tempMain, lv_color_white(), 0);
     lv_obj_set_style_text_font(s_tempMain, &lv_font_montserrat_48, 0);
     lv_label_set_text(s_tempMain, "--°");
-    lv_obj_align(s_tempMain, LV_ALIGN_CENTER, 0, -92);
+    lv_obj_align(s_tempMain, LV_ALIGN_CENTER, 0, -76);
     set_shadow_label_text(s_tempShadow, s_tempMain);
     lv_obj_align_to(s_tempShadow, s_tempMain, LV_ALIGN_TOP_LEFT, 2, 2);
 
@@ -379,7 +379,7 @@ void ui_WeatherScreen_tick(void)
     if(s_tempMain && s_tempShadow) {
         lv_label_set_text(s_tempMain, whole_temp(wd.temperature).c_str());
         set_shadow_label_text(s_tempShadow, s_tempMain);
-        lv_obj_align(s_tempMain, LV_ALIGN_CENTER, 0, -92);
+        lv_obj_align(s_tempMain, LV_ALIGN_CENTER, 0, -76);
         lv_obj_align_to(s_tempShadow, s_tempMain, LV_ALIGN_TOP_LEFT, 2, 2);
     }
     if(s_condMain && s_condShadow) {

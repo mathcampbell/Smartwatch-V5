@@ -40,7 +40,6 @@ static constexpr int16_t FORECAST_GAP = 12;
 
 lv_obj_t* ui_WeatherScreen = nullptr;
 
-static lv_obj_t* s_bgClip = nullptr;
 static lv_obj_t* s_bg = nullptr;
 static lv_obj_t* s_scrim = nullptr;
 static lv_obj_t* s_innerRing = nullptr;
@@ -122,7 +121,7 @@ static String detail_line(const WeatherData& wd)
     }
 
     if (wd.wind_speed.length() > 0) {
-        if (out.length()) out += "  •  ";
+        if (out.length()) out += " - ";
         out += "Wind ";
         out += wd.wind_speed;
     }
@@ -192,31 +191,23 @@ void ui_WeatherScreen_screen_init(void)
 {
     if(ui_WeatherScreen) return;
 
+    Serial.println("[WeatherScreen] init start");
+
     ui_WeatherScreen = lv_obj_create(NULL);
     lv_obj_clear_flag(ui_WeatherScreen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(ui_WeatherScreen, SCR_W, SCR_H);
     lv_obj_set_style_bg_color(ui_WeatherScreen, lv_color_hex(0x05070A), 0);
     lv_obj_set_style_bg_opa(ui_WeatherScreen, LV_OPA_COVER, 0);
 
-    s_bgClip = lv_obj_create(ui_WeatherScreen);
-    lv_obj_remove_style_all(s_bgClip);
-    lv_obj_set_size(s_bgClip, BG_SZ, BG_SZ);
-    lv_obj_set_pos(s_bgClip, BG_X, BG_Y);
-    lv_obj_set_style_radius(s_bgClip, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(s_bgClip, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_bg_opa(s_bgClip, LV_OPA_COVER, 0);
-    lv_obj_set_style_clip_corner(s_bgClip, true, 0);
-    lv_obj_clear_flag(s_bgClip, LV_OBJ_FLAG_SCROLLABLE);
-
-    s_bg = lv_image_create(s_bgClip);
+    s_bg = lv_image_create(ui_WeatherScreen);
     lv_obj_set_size(s_bg, BG_SZ, BG_SZ);
-    lv_obj_set_pos(s_bg, 0, 0);
+    lv_obj_set_pos(s_bg, BG_X, BG_Y);
     lv_image_set_src(s_bg, "A:/lvgl/weather/cloudy-bg.jpg");
 
-    s_scrim = lv_obj_create(s_bgClip);
+    s_scrim = lv_obj_create(ui_WeatherScreen);
     lv_obj_remove_style_all(s_scrim);
     lv_obj_set_size(s_scrim, BG_SZ, BG_SZ);
-    lv_obj_set_pos(s_scrim, 0, 0);
+    lv_obj_set_pos(s_scrim, BG_X, BG_Y);
     lv_obj_set_style_radius(s_scrim, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(s_scrim, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(s_scrim, LV_OPA_30, 0);
@@ -381,6 +372,8 @@ void ui_WeatherScreen_screen_init(void)
     s_lastDt = 0;
     s_lastForecastSignature = "";
     ui_WeatherScreen_tick();
+
+    Serial.println("[WeatherScreen] init complete");
 }
 
 void ui_WeatherScreen_tick(void)

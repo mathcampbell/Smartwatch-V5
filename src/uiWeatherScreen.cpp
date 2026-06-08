@@ -14,18 +14,19 @@ static constexpr int16_t SCR_H = 466;
 
 static constexpr int16_t BG_SZ = 414;
 static constexpr int16_t BG_X = (SCR_W - BG_SZ) / 2;
-static constexpr int16_t BG_Y = 32;
+static constexpr int16_t BG_Y = 8;
+static constexpr int16_t CORNER_MASK_SZ = 78;
 
-static constexpr int16_t INNER_RING_W = 12;
-static constexpr int16_t INNER_RING_PAD = 2;
+static constexpr int16_t INNER_RING_W = 22;
+static constexpr int16_t INNER_RING_PAD = 0;
 
 static constexpr int16_t RING_W = 16;
 static constexpr int16_t ARC_ROT = 130;
-static constexpr int16_t ARC_SWEEP = 250;
+static constexpr int16_t ARC_SWEEP = 190;
 static constexpr int16_t SEG_COUNT = 5;
 static constexpr int16_t ARC_RANGE_MAX = 500;
 static constexpr int16_t SEG_SIZE = ARC_RANGE_MAX / SEG_COUNT;
-static constexpr int16_t SEG_GAP_DEG = 6;
+static constexpr int16_t SEG_GAP_DEG = 8;
 
 static constexpr int16_t FORECAST_COUNT = WEATHER_FORECAST_DAYS;
 static constexpr int16_t FORECAST_PANEL_X = 0;
@@ -43,6 +44,7 @@ lv_obj_t* ui_WeatherScreen = nullptr;
 static lv_obj_t* s_bg = nullptr;
 static lv_obj_t* s_scrim = nullptr;
 static lv_obj_t* s_innerRing = nullptr;
+static lv_obj_t* s_cornerMask[4] = {};
 static lv_obj_t* s_arc = nullptr;
 static lv_obj_t* s_locationLabel = nullptr;
 static lv_obj_t* s_forecastPanel = nullptr;
@@ -163,7 +165,7 @@ static String forecast_signature()
 
 static void style_forecast_card(lv_obj_t* card)
 {
-    lv_obj_set_style_bg_color(card, lv_color_hex(0x0D1B29), 0);
+    lv_obj_set_style_bg_color(card, lv_color_hex(0x1A2733), 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(card, 0, 0);
     lv_obj_set_style_radius(card, 16, 0);
@@ -185,6 +187,18 @@ static void set_forecast_slot(uint8_t i, const WeatherForecastDay* d)
     lv_label_set_text(s_forecastDay[i], d->dayLabel.c_str());
     lv_image_set_src(s_forecastIcon[i], getMeteoconIcon(d->id, false));
     lv_label_set_text(s_forecastTemp[i], d->temperature.c_str());
+}
+
+static lv_obj_t* create_corner_mask(lv_obj_t* parent, int16_t x, int16_t y)
+{
+    lv_obj_t* mask = lv_obj_create(parent);
+    lv_obj_remove_style_all(mask);
+    lv_obj_set_size(mask, CORNER_MASK_SZ, CORNER_MASK_SZ);
+    lv_obj_set_pos(mask, x, y);
+    lv_obj_set_style_bg_color(mask, lv_color_hex(0x05070A), 0);
+    lv_obj_set_style_bg_opa(mask, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(mask, LV_OBJ_FLAG_SCROLLABLE);
+    return mask;
 }
 
 void ui_WeatherScreen_screen_init(void)
@@ -213,6 +227,11 @@ void ui_WeatherScreen_screen_init(void)
     lv_obj_set_style_bg_opa(s_scrim, LV_OPA_30, 0);
     lv_obj_clear_flag(s_scrim, LV_OBJ_FLAG_SCROLLABLE);
 
+    s_cornerMask[0] = create_corner_mask(ui_WeatherScreen, BG_X, BG_Y);
+    s_cornerMask[1] = create_corner_mask(ui_WeatherScreen, BG_X + BG_SZ - CORNER_MASK_SZ, BG_Y);
+    s_cornerMask[2] = create_corner_mask(ui_WeatherScreen, BG_X, BG_Y + BG_SZ - CORNER_MASK_SZ);
+    s_cornerMask[3] = create_corner_mask(ui_WeatherScreen, BG_X + BG_SZ - CORNER_MASK_SZ, BG_Y + BG_SZ - CORNER_MASK_SZ);
+
     s_innerRing = lv_obj_create(ui_WeatherScreen);
     lv_obj_remove_style_all(s_innerRing);
     lv_obj_set_size(s_innerRing, BG_SZ + (INNER_RING_PAD * 2), BG_SZ + (INNER_RING_PAD * 2));
@@ -229,7 +248,7 @@ void ui_WeatherScreen_screen_init(void)
     lv_obj_set_size(s_forecastPanel, FORECAST_PANEL_W, FORECAST_PANEL_H);
     lv_obj_set_pos(s_forecastPanel, FORECAST_PANEL_X, FORECAST_PANEL_Y);
     lv_obj_set_style_radius(s_forecastPanel, 0, 0);
-    lv_obj_set_style_bg_color(s_forecastPanel, lv_color_hex(0x071522), 0);
+    lv_obj_set_style_bg_color(s_forecastPanel, lv_color_hex(0x151C26), 0);
     lv_obj_set_style_bg_opa(s_forecastPanel, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_forecastPanel, 0, 0);
     lv_obj_clear_flag(s_forecastPanel, LV_OBJ_FLAG_SCROLLABLE);
@@ -259,7 +278,7 @@ void ui_WeatherScreen_screen_init(void)
     lv_obj_set_style_text_align(s_locationLabel, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(s_locationLabel, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_label_set_text(s_locationLabel, compact_location().c_str());
-    lv_obj_align(s_locationLabel, LV_ALIGN_TOP_MID, 0, 27);
+    lv_obj_align(s_locationLabel, LV_ALIGN_TOP_MID, 0, 19);
 
     static lv_style_t style_shadow;
     static bool shadow_inited = false;
@@ -354,6 +373,7 @@ void ui_WeatherScreen_screen_init(void)
         lv_obj_align(s_forecastTemp[i], LV_ALIGN_BOTTOM_MID, 0, -2);
     }
 
+    for (uint8_t i = 0; i < 4; ++i) lv_obj_move_foreground(s_cornerMask[i]);
     lv_obj_move_foreground(s_innerRing);
     lv_obj_move_foreground(s_tempShadow);
     lv_obj_move_foreground(s_tempMain);

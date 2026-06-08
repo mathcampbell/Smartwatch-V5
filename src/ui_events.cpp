@@ -8,7 +8,7 @@
 #include <Arduino.h>
 #include "uiWeatherScreen.h"
 
-static constexpr const char* MAIN_DEFAULT_TITLE = "Smartwatch V5.0";
+static constexpr const char* MAIN_DEFAULT_TITLE = "Aetherwatch";
 
 void ui_MainScreen_reset_menu_default(void)
 {

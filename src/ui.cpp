@@ -13,14 +13,7 @@
 
 ///////////////////// DEFINITIONS //////////////////
 
-
-
-
 ///////////////////// VARIABLES ////////////////////
-
-
-
-
 
 // SCREEN: ui_MainScreen
 void ui_MainScreen_screen_init(void);
@@ -39,7 +32,6 @@ lv_obj_t * img_glow;
 lv_obj_t * img_bell;
 lv_obj_t * ui_BatteryLabel;
 
-
 // SCREEN: ui_ClockScreen
 void ui_ClockScreen_screen_init(void);
 lv_obj_t * ui_ClockScreen;
@@ -48,7 +40,6 @@ lv_obj_t * ui_MainArcClockMenu;
 lv_obj_t * hour_hand_img;
 lv_obj_t * minute_hand_img;
 lv_obj_t * second_hand_img;
-
 
 // SCREEN: ui_MusicControls
 void ui_MusicControls_screen_init(void);
@@ -69,7 +60,6 @@ lv_obj_t * ui_nextbutton;
 void ui_event_MusicVolume(lv_event_t * e);
 lv_obj_t * ui_MusicVolume;
 
-
 // SCREEN: ui_Settings
 void ui_Settings_screen_init(void);
 lv_obj_t * ui_Settings;
@@ -85,7 +75,6 @@ lv_obj_t *wifi_switch;
 void ui_WeatherScreen_screen_init(void);
 //lv_obj_t * ui_WeatherScreen;
 
-
 ///////////////////// TEST LVGL SETTINGS ////////////////////
 /* #if LV_COLOR_DEPTH != 16
     #error "LV_COLOR_DEPTH should be 16bit to match SquareLine Studio's settings"
@@ -98,12 +87,9 @@ void ui_WeatherScreen_screen_init(void);
 
 ///////////////////// FUNCTIONS ////////////////////
 
-
-
 void ui_event_MainArcMenu(lv_event_t * e)
 {
     lv_event_code_t event_code = lv_event_get_code(e);
-    lv_obj_t * target = (lv_obj_t *)lv_event_get_target(e);
     if(event_code == LV_EVENT_VALUE_CHANGED) {
         mainarc_valuechange(e);
     }
@@ -111,10 +97,10 @@ void ui_event_MainArcMenu(lv_event_t * e)
         mainarc_select(e);
     }
 }
+
 void ui_event_MainArcClockMenu(lv_event_t * e)
 {
     lv_event_code_t event_code = lv_event_get_code(e);
-    lv_obj_t * target = (lv_obj_t *)lv_event_get_target(e);
     if(event_code == LV_EVENT_VALUE_CHANGED) {
         mainarcclock_valuechange(e);
     }
@@ -122,10 +108,10 @@ void ui_event_MainArcClockMenu(lv_event_t * e)
         mainarcclock_select(e);
     }
 }
+
 void ui_event_MainArcMenuMusic(lv_event_t * e)
 {
     lv_event_code_t event_code = lv_event_get_code(e);
-    lv_obj_t * target = (lv_obj_t *)lv_event_get_target(e);
     if(event_code == LV_EVENT_VALUE_CHANGED) {
         mainarcmusic_valuechange(e);
     }
@@ -133,50 +119,50 @@ void ui_event_MainArcMenuMusic(lv_event_t * e)
         mainarcmusic_select(e);
     }
 }
+
 void ui_event_MusicArc(lv_event_t * e)
 {
     lv_event_code_t event_code = lv_event_get_code(e);
-    lv_obj_t * target = (lv_obj_t *)lv_event_get_target(e);
     if(event_code == LV_EVENT_RELEASED) {
         musictrack_release(e);
     }
 }
+
 void ui_event_playbutton(lv_event_t * e)
 {
     lv_event_code_t event_code = lv_event_get_code(e);
-    lv_obj_t * target = (lv_obj_t *)lv_event_get_target(e);
     if(event_code == LV_EVENT_PRESSED) {
         playbutton_pressed(e);
     }
 }
+
 void ui_event_previousbutton(lv_event_t * e)
 {
     lv_event_code_t event_code = lv_event_get_code(e);
-    lv_obj_t * target = (lv_obj_t *)lv_event_get_target(e);
     if(event_code == LV_EVENT_PRESSED) {
         prevbutton_pressed(e);
     }
 }
+
 void ui_event_nextbutton(lv_event_t * e)
 {
     lv_event_code_t event_code = lv_event_get_code(e);
-    lv_obj_t * target = (lv_obj_t *)lv_event_get_target(e);
     if(event_code == LV_EVENT_PRESSED) {
         nextbutton_pressed(e);
     }
 }
+
 void ui_event_MusicVolume(lv_event_t * e)
 {
     lv_event_code_t event_code = lv_event_get_code(e);
-    lv_obj_t * target = (lv_obj_t *)lv_event_get_target(e);
     if(event_code == LV_EVENT_RELEASED) {
         musictrack_release(e);
     }
 }
+
 void ui_event_MainArcSettingsMenu(lv_event_t * e)
 {
     lv_event_code_t event_code = lv_event_get_code(e);
-    lv_obj_t * target = (lv_obj_t *)lv_event_get_target(e);
     if(event_code == LV_EVENT_VALUE_CHANGED) {
         mainarcsettings_valuechange(e);
     }
@@ -188,6 +174,7 @@ void ui_event_MainArcSettingsMenu(lv_event_t * e)
 void ui_action_power_cancel(void)
 {
     lv_scr_load(ui_MainScreen);
+    ui_MainScreen_reset_menu_default();
 }
 
 void ui_action_power_restart(void)
@@ -199,9 +186,6 @@ void ui_action_power_shutdown(void)
 {
     PowerManager::instance().shutdown();
 }
-
-
-
 
 ///////////////////// SCREENS ////////////////////
 
@@ -218,8 +202,6 @@ void ui_init(void)
     ui_Power_screen_init();
     ui_WeatherScreen_screen_init();
     ui____initial_actions0 = lv_obj_create(NULL);
+    ui_MainScreen_reset_menu_default();
     lv_disp_load_scr(ui_MainScreen);
-
-
-  
 }

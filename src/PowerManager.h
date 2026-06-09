@@ -68,8 +68,8 @@ public:
 
     void setIrqReadFn(IrqReadFn fn, bool activeLow = true);
 
-    // Legacy name retained for existing callers. This now enters deep sleep.
-    void enterLightSleep();
+    // Returns true if light sleep woke from the timer, false for touch/user wake.
+    bool enterLightSleep(uint32_t timerWakeMs = 0, bool restoreScreenOnWake = true);
     void enterDeepSleep();
 
     void restart();    // soft reboot

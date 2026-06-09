@@ -5,10 +5,11 @@
 #include <esp_sleep.h>
 #include <esp_system.h>
 #include <driver/gpio.h>
+#include <WiFi.h>
 #include "DisplayManager.h"
 #include "TimeManager.h"
 
-static constexpr gpio_num_t TP_INT_GPIO = GPIO_NUM_11;   // your TP_INT
+static constexpr gpio_num_t TP_INT_GPIO = GPIO_NUM_11;   // your TP_INT / wake source
 
 
 PowerManager& PowerManager::instance()
@@ -190,34 +191,40 @@ void PowerManager::updateIrq_()
     pmu_->clearIrqStatus();
 }
 
-
 void PowerManager::enterLightSleep()
 {
-  // 1) Quiesce app peripherals.
-  DisplayManager::instance().setScreenOn(false);
+    enterDeepSleep();
+}
 
-  // 2) Configure wake sources.
-  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+void PowerManager::enterDeepSleep()
+{
+    Serial.println("[PowerManager] Entering deep sleep");
+    Serial.flush();
 
-  // Touch INT is active-low; use pullup + wake on LOW.
-  pinMode((int)TP_INT_GPIO, INPUT_PULLUP);
-  const uint64_t mask = (1ULL << (int)TP_INT_GPIO);
-  esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_LOW);
+    // Quiesce application peripherals first.
+    DisplayManager::instance().setScreenOn(false);
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    btStop();
 
-  // 3) Go to light sleep. ESP32 timekeeping can drift here, so do not trust
-  // the system clock blindly after this returns.
-  esp_light_sleep_start();
+    if (pmu_) {
+        adcOff();
+        pmu_->clearIrqStatus();
+    }
 
-  // 4) On wake, immediately correct system time from the external RTC before
-  // the UI is redrawn. This keeps the displayed watch time tied to the PCF85063
-  // rather than the ESP32's light-sleep slow clock.
-  if (!time_manager_bootstrap_system_time_from_rtc()) {
-    Serial.println("[PowerManager] RTC resync after light sleep failed");
-  } else {
-    Serial.println("[PowerManager] RTC resync after light sleep ok");
-  }
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
 
-  DisplayManager::instance().setScreenOn(true);
+    // Touch INT is active-low; use pullup + wake on LOW.
+    // Deep sleep is a reboot on wake, so setup() will rebuild the UI/cache state.
+    pinMode((int)TP_INT_GPIO, INPUT_PULLUP);
+    const uint64_t mask = (1ULL << (int)TP_INT_GPIO);
+    esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_LOW);
+
+    // Keep RTC peripherals alive so the internal pull-up / EXT1 wake path remains valid.
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
+
+    delay(50);
+    esp_deep_sleep_start();
 }
 
 void PowerManager::restart()

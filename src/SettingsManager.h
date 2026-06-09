@@ -29,6 +29,7 @@ struct SettingsData {
     uint16_t brightness_level;
     uint16_t screen_dim_duration;
     uint16_t sleep_duration;
+    bool hibernate_after_sleep;
     uint16_t system_volume;
 
     std::vector<WiFiNetwork> known_wifi_networks;

@@ -17,11 +17,63 @@ static LocationGeocodeResult s_results[LOCATION_GEOCODER_MAX_RESULTS];
 static uint8_t s_resultCount = 0;
 static String s_pendingQuery;
 static bool s_lookupPending = false;
+static lv_obj_t* s_sleepValueLabel = nullptr;
 
 static bool has_any_configured_wifi()
 {
     if (!currentSettings.known_wifi_networks.empty()) return true;
     return currentSettings.wifi_ssid.length() > 0;
+}
+
+static void update_sleep_value_label()
+{
+    if (!s_sleepValueLabel) return;
+    String txt = "Sleep after: ";
+    txt += String(currentSettings.sleep_duration);
+    txt += "s";
+    lv_label_set_text(s_sleepValueLabel, txt.c_str());
+}
+
+static void sleep_slider_persist_event_cb(lv_event_t* e)
+{
+    lv_obj_t* slider = (lv_obj_t*)lv_event_get_target(e);
+    if (!slider) return;
+
+    uint16_t value = (uint16_t)lv_slider_get_value(slider);
+    if (value < 5) value = 5;
+    currentSettings.sleep_duration = value;
+    update_sleep_value_label();
+
+    const lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_RELEASED || code == LV_EVENT_READY) {
+        saveSettingsDataToFile("/settings.json", currentSettings);
+    }
+}
+
+static void hibernate_checkbox_event_cb(lv_event_t* e)
+{
+    lv_obj_t* checkbox = (lv_obj_t*)lv_event_get_target(e);
+    if (!checkbox) return;
+
+    currentSettings.hibernate_after_sleep = lv_obj_has_state(checkbox, LV_STATE_CHECKED);
+    saveSettingsDataToFile("/settings.json", currentSettings);
+}
+
+static void attach_sleep_slider_persistence(lv_obj_t* parent)
+{
+    if (!parent) return;
+
+    // show_general_settings() creates children in this order:
+    // title, brightness label, brightness slider, sleep label, sleep slider,
+    // then this helper is called. Avoid depending on LVGL class RTTI here.
+    if (lv_obj_get_child_count(parent) <= 4) return;
+
+    lv_obj_t* sleepSlider = lv_obj_get_child(parent, 4);
+    if (!sleepSlider) return;
+
+    lv_slider_set_value(sleepSlider, currentSettings.sleep_duration, LV_ANIM_OFF);
+    lv_obj_add_event_cb(sleepSlider, sleep_slider_persist_event_cb, LV_EVENT_VALUE_CHANGED, nullptr);
+    lv_obj_add_event_cb(sleepSlider, sleep_slider_persist_event_cb, LV_EVENT_RELEASED, nullptr);
 }
 
 static void update_coords_label()
@@ -213,6 +265,31 @@ static void location_textarea_event_cb(lv_event_t* e)
 void ui_settings_add_location_controls(lv_obj_t* parent)
 {
     if (!parent) return;
+
+    attach_sleep_slider_persistence(parent);
+
+    s_sleepValueLabel = lv_label_create(parent);
+    lv_obj_set_style_text_font(s_sleepValueLabel, &lv_font_montserrat_12, 0);
+    lv_obj_set_width(s_sleepValueLabel, lv_pct(90));
+    update_sleep_value_label();
+
+    lv_obj_t* hibernateCheckbox = lv_checkbox_create(parent);
+    lv_checkbox_set_text(hibernateCheckbox, "Hibernate after sleep");
+    lv_obj_set_width(hibernateCheckbox, lv_pct(90));
+    lv_obj_set_style_text_font(hibernateCheckbox, &lv_font_montserrat_12, 0);
+    if (currentSettings.hibernate_after_sleep) {
+        lv_obj_add_state(hibernateCheckbox, LV_STATE_CHECKED);
+    } else {
+        lv_obj_clear_state(hibernateCheckbox, LV_STATE_CHECKED);
+    }
+    lv_obj_add_event_cb(hibernateCheckbox, hibernate_checkbox_event_cb, LV_EVENT_VALUE_CHANGED, nullptr);
+
+    lv_obj_t* hibernateNote = lv_label_create(parent);
+    lv_obj_set_width(hibernateNote, lv_pct(90));
+    lv_label_set_long_mode(hibernateNote, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_font(hibernateNote, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(hibernateNote, lv_color_hex(0x777777), 0);
+    lv_label_set_text(hibernateNote, "If enabled, Aetherwatch will enter deep sleep 30s after light sleep if there is no touch wake.");
 
     lv_obj_t* section = lv_label_create(parent);
     lv_label_set_text(section, "Weather / tides location");

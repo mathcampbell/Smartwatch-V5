@@ -67,7 +67,11 @@ public:
     using IrqReadFn = std::function<int(void)>;
 
     void setIrqReadFn(IrqReadFn fn, bool activeLow = true);
+
+    // Legacy name retained for existing callers. This now enters deep sleep.
     void enterLightSleep();
+    void enterDeepSleep();
+
     void restart();    // soft reboot
     void shutdown();   // PMU power-off
 

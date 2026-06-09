@@ -50,6 +50,7 @@ bool loadSettingsDataFromFile(const char* filePath, SettingsData& settings)
     settings.brightness_level = doc["brightness_level"] | 70;
     settings.screen_dim_duration = doc["screen_dim_duration"] | 20;
     settings.sleep_duration = doc["sleep_duration"] | 30;
+    settings.hibernate_after_sleep = doc["hibernate_after_sleep"] | true;
     settings.system_volume = doc["system_volume"] | 50;
 
     settings.known_wifi_networks.clear();
@@ -90,8 +91,9 @@ void saveSettingsDataToFile(const char* filePath, const SettingsData& settings)
     doc["timezone_offset_seconds"] = settings.timezone_offset_seconds;
     doc["lastUpdate"] = settings.lastUpdate;
     doc["brightness_level"] = settings.brightness_level;
-    doc["screen_dim_duration"] =  settings.screen_dim_duration;
-    doc["sleep_duration"] =  settings.sleep_duration;
+    doc["screen_dim_duration"] = settings.screen_dim_duration;
+    doc["sleep_duration"] = settings.sleep_duration;
+    doc["hibernate_after_sleep"] = settings.hibernate_after_sleep;
     doc["system_volume"] = settings.system_volume;
 
     JsonArray wifiNetworks = doc.createNestedArray("known_wifi_networks");
@@ -127,6 +129,7 @@ void initializeSettingsData()
         defaultSettings.brightness_level = 70;
         defaultSettings.screen_dim_duration = 20;
         defaultSettings.sleep_duration = 30;
+        defaultSettings.hibernate_after_sleep = true;
         defaultSettings.system_volume = 50;
         defaultSettings.weather_lat = "";
         defaultSettings.weather_long = "";

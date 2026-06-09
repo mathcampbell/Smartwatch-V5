@@ -8,8 +8,10 @@
 #include <WiFi.h>
 #include "DisplayManager.h"
 #include "TimeManager.h"
+#include "SettingsManager.h"
 
 static constexpr gpio_num_t TP_INT_GPIO = GPIO_NUM_11;   // your TP_INT / wake source
+static constexpr uint32_t HIBERNATE_AFTER_LIGHT_SLEEP_MS = 30000;
 
 
 PowerManager& PowerManager::instance()
@@ -193,6 +195,12 @@ void PowerManager::updateIrq_()
 
 bool PowerManager::enterLightSleep(uint32_t timerWakeMs, bool restoreScreenOnWake)
 {
+    const bool timedHibernate = (timerWakeMs == 0 && currentSettings.hibernate_after_sleep);
+    if (timedHibernate) {
+        timerWakeMs = HIBERNATE_AFTER_LIGHT_SLEEP_MS;
+        restoreScreenOnWake = true;
+    }
+
     Serial.println("[PowerManager] Entering light sleep");
     Serial.flush();
 
@@ -217,6 +225,10 @@ bool PowerManager::enterLightSleep(uint32_t timerWakeMs, bool restoreScreenOnWak
         Serial.println("[PowerManager] RTC resync after light sleep failed");
     } else {
         Serial.println("[PowerManager] RTC resync after light sleep ok");
+    }
+
+    if (timedHibernate && timerWake) {
+        enterDeepSleep();
     }
 
     if (restoreScreenOnWake && !timerWake) {

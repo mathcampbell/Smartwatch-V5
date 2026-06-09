@@ -191,9 +191,39 @@ void PowerManager::updateIrq_()
     pmu_->clearIrqStatus();
 }
 
-void PowerManager::enterLightSleep()
+bool PowerManager::enterLightSleep(uint32_t timerWakeMs, bool restoreScreenOnWake)
 {
-    enterDeepSleep();
+    Serial.println("[PowerManager] Entering light sleep");
+    Serial.flush();
+
+    DisplayManager::instance().setScreenOn(false);
+
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+
+    pinMode((int)TP_INT_GPIO, INPUT_PULLUP);
+    const uint64_t mask = (1ULL << (int)TP_INT_GPIO);
+    esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_LOW);
+
+    if (timerWakeMs > 0) {
+        esp_sleep_enable_timer_wakeup((uint64_t)timerWakeMs * 1000ULL);
+    }
+
+    esp_light_sleep_start();
+
+    const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+    const bool timerWake = (cause == ESP_SLEEP_WAKEUP_TIMER);
+
+    if (!time_manager_bootstrap_system_time_from_rtc()) {
+        Serial.println("[PowerManager] RTC resync after light sleep failed");
+    } else {
+        Serial.println("[PowerManager] RTC resync after light sleep ok");
+    }
+
+    if (restoreScreenOnWake && !timerWake) {
+        DisplayManager::instance().setScreenOn(true);
+    }
+
+    return timerWake;
 }
 
 void PowerManager::enterDeepSleep()

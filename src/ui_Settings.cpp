@@ -325,6 +325,11 @@ static void wifi_start_async_scan()
     wifi_scan_timer = lv_timer_create(wifi_scan_timer_cb, 250, nullptr);
 }
 
+static void wifi_scan_now_event_cb(lv_event_t * e)
+{
+    (void)e;
+    scan_and_display_wifi_networks();
+}
 
 void create_content_area(void) {
     content_area = lv_obj_create(ui_Settings);
@@ -392,6 +397,15 @@ void show_wifi_settings(void) {
     lv_label_set_long_mode(wifi_status_label, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_font(wifi_status_label, &lv_font_montserrat_12, 0);
 
+    lv_obj_t * scan_btn = lv_btn_create(content_area);
+    lv_obj_set_width(scan_btn, lv_pct(70));
+    lv_obj_set_height(scan_btn, 34);
+    lv_obj_add_event_cb(scan_btn, wifi_scan_now_event_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t * scan_label = lv_label_create(scan_btn);
+    lv_label_set_text(scan_label, "Scan networks");
+    lv_obj_center(scan_label);
+
     wifi_list = lv_list_create(content_area);
     lv_obj_set_size(wifi_list, lv_pct(90), 115);
     lv_obj_set_style_pad_all(wifi_list, 4, 0);
@@ -405,9 +419,16 @@ void show_wifi_settings(void) {
     lv_obj_add_flag(wifi_action_panel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(wifi_action_panel, LV_OBJ_FLAG_HIDDEN);
 
-    if (wifi_is_enabled()) {
-        wifi_set_status("Wi-Fi on");
-        scan_and_display_wifi_networks();
+   if (wifi_is_enabled()) {
+    if (WiFi.status() == WL_CONNECTED) {
+        String status = "Connected: ";
+        status += WiFi.SSID();
+        wifi_set_status(status.c_str());
+    } else {
+        wifi_set_status("Wi-Fi on. Tap Scan networks.");
+    }
+
+        wifi_render_known_networks_only();
     } else {
         wifi_set_status("Wi-Fi off. Saved networks shown.");
         wifi_render_known_networks_only();

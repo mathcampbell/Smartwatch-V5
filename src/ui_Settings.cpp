@@ -7,7 +7,10 @@
 #include "DisplayManager.h"
 #include "SettingsManager.h"
 #include "ui_SettingsLocation.h"
+#include "ui_KeyboardOverlay.h"
 //#include "mc_circular_keyboard.h"
+
+#include <algorithm>
 
 lv_obj_t * arc_segments[NUM_SEGMENTS];
 const char * segment_labels[NUM_SEGMENTS] = {"Wi-Fi", "General", "Home", "Bluetooth", "Weather", "Sound"};
@@ -24,7 +27,303 @@ bool doScreenBrightnessUpdate;
 
 static const char *keyboard_context = nullptr;
 
+// ----- Wi-Fi settings UI state -----
+static lv_obj_t * wifi_status_label = nullptr;
+static lv_obj_t * wifi_action_panel = nullptr;
+static lv_obj_t * wifi_password_textarea = nullptr;
+static lv_timer_t * wifi_scan_timer = nullptr;
 
+static String wifi_selected_ssid;
+static std::vector<String> wifi_scan_ssids;
+static bool wifi_page_active = false;
+
+static bool wifi_is_enabled()
+{
+    wifi_mode_t mode = WiFi.getMode();
+    return mode == WIFI_STA || mode == WIFI_AP_STA;
+}
+
+static bool wifi_selected_is_connected()
+{
+    return WiFi.status() == WL_CONNECTED && WiFi.SSID() == wifi_selected_ssid;
+}
+
+static void wifi_set_status(const char * text)
+{
+    if (wifi_status_label) {
+        lv_label_set_text(wifi_status_label, text);
+    }
+}
+
+static void wifi_stop_scan_timer()
+{
+    if (wifi_scan_timer) {
+        lv_timer_del(wifi_scan_timer);
+        wifi_scan_timer = nullptr;
+    }
+}
+
+static void wifi_clear_action_panel()
+{
+    wifi_password_textarea = nullptr;
+
+    if (!wifi_action_panel) return;
+
+    lv_obj_clean(wifi_action_panel);
+    lv_obj_add_flag(wifi_action_panel, LV_OBJ_FLAG_HIDDEN);
+}
+
+static lv_obj_t * wifi_add_panel_button(const char * text, lv_event_cb_t cb, void * user_data)
+{
+    if (!wifi_action_panel) return nullptr;
+
+    lv_obj_t * btn = lv_btn_create(wifi_action_panel);
+    lv_obj_set_width(btn, lv_pct(90));
+    lv_obj_set_height(btn, 34);
+
+    lv_obj_t * label = lv_label_create(btn);
+    lv_label_set_text(label, text);
+    lv_obj_center(label);
+
+    lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, user_data);
+    return btn;
+}
+
+static void wifi_render_known_networks_only()
+{
+    if (!wifi_list) return;
+
+    lv_obj_clean(wifi_list);
+    lv_list_add_text(wifi_list, "Saved networks");
+
+    if (currentSettings.known_wifi_networks.empty()) {
+        lv_obj_t * btn = lv_list_add_btn(wifi_list, NULL, "No saved networks");
+        lv_obj_add_state(btn, LV_STATE_DISABLED);
+        return;
+    }
+
+    for (auto & network : currentSettings.known_wifi_networks) {
+        const char * icon = (WiFi.status() == WL_CONNECTED && WiFi.SSID() == network.ssid)
+            ? LV_SYMBOL_OK
+            : LV_SYMBOL_WIFI;
+
+        lv_obj_t * btn = lv_list_add_btn(wifi_list, icon, network.ssid.c_str());
+        lv_obj_add_event_cb(btn, saved_network_selected_cb, LV_EVENT_CLICKED, (void *)network.ssid.c_str());
+    }
+}
+
+static bool wifi_scan_ssid_already_listed(const String& ssid)
+{
+    for (const auto& existing : wifi_scan_ssids) {
+        if (existing == ssid) return true;
+    }
+    return false;
+}
+
+static void wifi_render_network_list_from_scan()
+{
+    if (!wifi_list) return;
+
+    lv_obj_clean(wifi_list);
+
+    if (!currentSettings.known_wifi_networks.empty()) {
+        lv_list_add_text(wifi_list, "Saved networks");
+
+        for (auto & network : currentSettings.known_wifi_networks) {
+            const char * icon = (WiFi.status() == WL_CONNECTED && WiFi.SSID() == network.ssid)
+                ? LV_SYMBOL_OK
+                : LV_SYMBOL_WIFI;
+
+            lv_obj_t * btn = lv_list_add_btn(wifi_list, icon, network.ssid.c_str());
+            lv_obj_add_event_cb(btn, saved_network_selected_cb, LV_EVENT_CLICKED, (void *)network.ssid.c_str());
+        }
+    }
+
+    lv_list_add_text(wifi_list, "Found networks");
+
+    if (wifi_scan_ssids.empty()) {
+        lv_obj_t * btn = lv_list_add_btn(wifi_list, NULL, "No networks found");
+        lv_obj_add_state(btn, LV_STATE_DISABLED);
+        return;
+    }
+
+    for (auto & ssid : wifi_scan_ssids) {
+        int saved_index = findKnownWiFiNetworkIndex(ssid);
+        const char * icon = saved_index >= 0 ? LV_SYMBOL_OK : LV_SYMBOL_WIFI;
+
+        lv_obj_t * btn = lv_list_add_btn(wifi_list, icon, ssid.c_str());
+        lv_obj_add_event_cb(btn, wifi_network_selected_cb, LV_EVENT_CLICKED, (void *)ssid.c_str());
+
+        if (saved_index >= 0) {
+            lv_obj_set_style_text_color(btn, lv_color_hex(0x41C7FF), 0);
+        }
+    }
+}
+
+static void wifi_build_password_entry_panel(const char * title, bool show_save, bool show_connect)
+{
+    if (!wifi_action_panel) return;
+
+    wifi_clear_action_panel();
+    lv_obj_clear_flag(wifi_action_panel, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t * title_label = lv_label_create(wifi_action_panel);
+    lv_label_set_text(title_label, title);
+    lv_obj_set_width(title_label, lv_pct(90));
+    lv_label_set_long_mode(title_label, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(title_label, &lv_font_montserrat_12, 0);
+
+    wifi_password_textarea = lv_textarea_create(wifi_action_panel);
+    lv_obj_set_width(wifi_password_textarea, lv_pct(90));
+    lv_obj_set_height(wifi_password_textarea, 38);
+    lv_textarea_set_one_line(wifi_password_textarea, true);
+    lv_textarea_set_password_mode(wifi_password_textarea, true);
+    lv_textarea_set_placeholder_text(wifi_password_textarea, "Password");
+
+    ui_keyboard_attach_textarea(wifi_password_textarea, content_area);
+
+    if (show_save) {
+        wifi_add_panel_button("Save", save_wifi_network_event_cb, wifi_password_textarea);
+    }
+
+    if (show_connect) {
+        wifi_add_panel_button("Connect", connect_wifi_network_event_cb, wifi_password_textarea);
+    }
+}
+
+static void wifi_disconnect_selected_event_cb(lv_event_t * e)
+{
+    (void)e;
+
+    if (wifi_selected_ssid.length() == 0) return;
+
+    if (wifi_selected_is_connected()) {
+        WiFi.disconnect(false);
+        wifi_set_status("Disconnected");
+    }
+
+    wifi_clear_action_panel();
+
+    if (wifi_scan_ssids.empty()) {
+        wifi_render_known_networks_only();
+    } else {
+        wifi_render_network_list_from_scan();
+    }
+}
+
+static void wifi_build_selected_network_panel()
+{
+    if (!wifi_action_panel) return;
+
+    wifi_clear_action_panel();
+    lv_obj_clear_flag(wifi_action_panel, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t * title = lv_label_create(wifi_action_panel);
+    lv_label_set_text(title, wifi_selected_ssid.c_str());
+    lv_obj_set_width(title, lv_pct(90));
+    lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_12, 0);
+
+    int saved_index = findKnownWiFiNetworkIndex(wifi_selected_ssid);
+
+    if (saved_index >= 0) {
+        wifi_add_panel_button("Connect", connect_wifi_network_event_cb, nullptr);
+        wifi_add_panel_button("Change password", edit_saved_network_event_cb, (void *)wifi_selected_ssid.c_str());
+        wifi_add_panel_button("Forget", remove_saved_network_event_cb, (void *)wifi_selected_ssid.c_str());
+
+        if (wifi_selected_is_connected()) {
+            wifi_add_panel_button("Disconnect", wifi_disconnect_selected_event_cb, nullptr);
+        }
+    } else {
+        wifi_build_password_entry_panel(wifi_selected_ssid.c_str(), true, true);
+    }
+}
+
+static void wifi_scan_timer_cb(lv_timer_t * timer)
+{
+    (void)timer;
+
+    if (!wifi_page_active || !wifi_list) {
+        wifi_stop_scan_timer();
+        return;
+    }
+
+    int result = WiFi.scanComplete();
+
+    if (result == WIFI_SCAN_RUNNING) {
+        static uint8_t dots = 0;
+        dots = (dots + 1) % 4;
+
+        if (dots == 0) wifi_set_status("Scanning");
+        else if (dots == 1) wifi_set_status("Scanning.");
+        else if (dots == 2) wifi_set_status("Scanning..");
+        else wifi_set_status("Scanning...");
+        return;
+    }
+
+    if (result == WIFI_SCAN_FAILED) {
+        wifi_stop_scan_timer();
+        wifi_set_status("Scan failed");
+        WiFi.scanDelete();
+        wifi_render_known_networks_only();
+        return;
+    }
+
+    wifi_stop_scan_timer();
+
+    wifi_scan_ssids.clear();
+
+    for (int i = 0; i < result; ++i) {
+        String ssid = WiFi.SSID(i);
+        if (ssid.length() == 0) continue;
+        if (wifi_scan_ssid_already_listed(ssid)) continue;
+
+        wifi_scan_ssids.push_back(ssid);
+    }
+
+    WiFi.scanDelete();
+
+    if (wifi_scan_ssids.empty()) {
+        wifi_set_status("No networks found");
+    } else {
+        String status = "Found ";
+        status += String(wifi_scan_ssids.size());
+        status += " network";
+        if (wifi_scan_ssids.size() != 1) status += "s";
+        wifi_set_status(status.c_str());
+    }
+
+    wifi_render_network_list_from_scan();
+}
+
+static void wifi_start_async_scan()
+{
+    wifi_stop_scan_timer();
+
+    if (!wifi_list) return;
+
+    wifi_enable();
+    WiFi.scanDelete();
+
+    wifi_scan_ssids.clear();
+    wifi_clear_action_panel();
+
+    wifi_set_status("Scanning...");
+    lv_obj_clean(wifi_list);
+    lv_list_add_text(wifi_list, "Scanning");
+    lv_obj_t * wait_btn = lv_list_add_btn(wifi_list, LV_SYMBOL_REFRESH, "Searching for networks...");
+    lv_obj_add_state(wait_btn, LV_STATE_DISABLED);
+
+    int start_result = WiFi.scanNetworks(true);
+
+    if (start_result >= 0) {
+        // Some builds can return results immediately.
+        wifi_scan_timer_cb(nullptr);
+        return;
+    }
+
+    wifi_scan_timer = lv_timer_create(wifi_scan_timer_cb, 250, nullptr);
+}
 
 
 void create_content_area(void) {
@@ -66,42 +365,53 @@ void handle_keyboard_close(bool is_ok_pressed) {
 
 
 void show_wifi_settings(void) {
-    lv_obj_clean(content_area); // Clear previous content
+    wifi_page_active = true;
+    wifi_selected_ssid = "";
+    wifi_password_textarea = nullptr;
 
-        // Use a flex layout to arrange labels and sliders in a column
+    wifi_stop_scan_timer();
+
+    lv_obj_clean(content_area);
+
     lv_obj_set_flex_flow(content_area, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(content_area, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER); 
+    lv_obj_set_flex_align(content_area, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     content_label = lv_label_create(content_area);
     lv_label_set_text(content_label, "Wi-Fi Settings");
-    lv_obj_align(content_label, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_set_style_text_font(content_label, &lv_font_montserrat_12, 0);
 
-    // Create Wi-Fi switch to enable/disable Wi-Fi
     lv_obj_t * wifi_switch = lv_switch_create(content_area);
-    lv_obj_align(wifi_switch, LV_ALIGN_TOP_LEFT, 20, 40);
     lv_obj_add_event_cb(wifi_switch, wifi_switch_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-/*     // Label for the Wi-Fi switch
-    lv_obj_t * switch_label = lv_label_create(content_area);
-    lv_label_set_text(switch_label, "Wi-Fi On/Off");
-    lv_obj_align_to(switch_label, wifi_switch, LV_ALIGN_TOP_LEFT, 0, 40); */
+    if (wifi_is_enabled()) {
+        lv_obj_add_state(wifi_switch, LV_STATE_CHECKED);
+    }
 
-    // Create list for Wi-Fi networks (both saved and scanned)
-    //lv_obj_t * wifi_list = lv_list_create(content_area);
+    wifi_status_label = lv_label_create(content_area);
+    lv_obj_set_width(wifi_status_label, lv_pct(90));
+    lv_label_set_long_mode(wifi_status_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_font(wifi_status_label, &lv_font_montserrat_12, 0);
+
     wifi_list = lv_list_create(content_area);
-    lv_obj_set_size(wifi_list, lv_pct(90), lv_pct(40));
-    lv_obj_align(wifi_list, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_style_pad_all(wifi_list, 5, 0);
-    lv_list_add_text(wifi_list, "Wi-Fi Networks");
-    if (wifi_list == nullptr) {
-    Serial.println("Error in show_wifi_settings: Wi-Fi list is not initialized.");
-    return;
-}
+    lv_obj_set_size(wifi_list, lv_pct(90), 115);
+    lv_obj_set_style_pad_all(wifi_list, 4, 0);
 
-    // Add event to populate the list of networks when Wi-Fi is enabled
-    lv_obj_add_event_cb(wifi_switch, wifi_switch_event_cb, LV_EVENT_VALUE_CHANGED, wifi_list);
+    wifi_action_panel = lv_obj_create(content_area);
+    lv_obj_set_width(wifi_action_panel, lv_pct(90));
+    lv_obj_set_height(wifi_action_panel, 125);
+    lv_obj_set_flex_flow(wifi_action_panel, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(wifi_action_panel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_scrollbar_mode(wifi_action_panel, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_add_flag(wifi_action_panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(wifi_action_panel, LV_OBJ_FLAG_HIDDEN);
 
-   // scan_and_display_wifi_networks();
+    if (wifi_is_enabled()) {
+        wifi_set_status("Wi-Fi on");
+        scan_and_display_wifi_networks();
+    } else {
+        wifi_set_status("Wi-Fi off. Saved networks shown.");
+        wifi_render_known_networks_only();
+    }
 }
 
 
@@ -162,6 +472,8 @@ void ui_Settings_screen_init(void)
     lv_obj_set_style_bg_color(ui_Settings, lv_color_hex(0x100820), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(ui_Settings, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_size(ui_Settings, 466, 466);
+    ui_keyboard_overlay_init(ui_Settings);
+
     create_radial_menu();
     create_content_area();
      add_segment_buttons(); // Use this if you're creating buttons
@@ -228,6 +540,14 @@ void segment_btn_event_cb(lv_event_t * e)
         return;  // Ensure the radial menu is valid
     }
 
+    if (segment_index != 0) {
+    wifi_page_active = false;
+    wifi_stop_scan_timer();
+    WiFi.scanDelete();
+    wifi_status_label = nullptr;
+    wifi_action_panel = nullptr;
+    wifi_password_textarea = nullptr;
+    }
 
     // Update the arc's indicator to highlight the selected segment
     int total_angle = 360;
@@ -335,6 +655,15 @@ void settingsMenu_select(lv_event_t * e)
     // Debug output
     Serial.printf("Segment Selected: %d\n", segment_index);
 
+    if (segment_index != 0) {
+    wifi_page_active = false;
+    wifi_stop_scan_timer();
+    WiFi.scanDelete();
+    wifi_status_label = nullptr;
+    wifi_action_panel = nullptr;
+    wifi_password_textarea = nullptr;
+}
+
     // Perform the action based on the segment index
     switch(segment_index) {
         case 0: // Wi-Fi
@@ -411,19 +740,18 @@ void show_radial_menu_and_buttons(void) {
 void wifi_switch_event_cb(lv_event_t *e) {
     lv_obj_t *sw = (lv_obj_t *)lv_event_get_target(e);
 
+    wifi_clear_action_panel();
+
     if (lv_obj_has_state(sw, LV_STATE_CHECKED)) {
-        wifi_enable();
-        delay(200);
         scan_and_display_wifi_networks();
     } else {
+        wifi_stop_scan_timer();
+        WiFi.scanDelete();
         wifi_disable();
-        if (wifi_list == nullptr) {
-        Serial.println("Error in wifi_switch event. Can't remove wifi list, list is not initialized.");
-        }
-        else
-        {
-            lv_obj_clean(wifi_list); // Clear the list
-        }
+
+        wifi_scan_ssids.clear();
+        wifi_set_status("Wi-Fi off. Saved networks shown.");
+        wifi_render_known_networks_only();
     }
 }
 
@@ -755,282 +1083,181 @@ void cancel_btn_cb(lv_event_t *e) {
 }
 
 // WiFi network selection callback
+// WiFi network selection callback
 void wifi_network_selected_cb(lv_event_t * e)
 {
-    // 1) Get the SSID from event user data
     const char * selected_ssid = (const char *)lv_event_get_user_data(e);
-    if (!selected_ssid) {
+    if (!selected_ssid || selected_ssid[0] == '\0') {
         Serial.println("Error: No SSID provided.");
         return;
     }
-    Serial.printf("Selected SSID: %s\n", selected_ssid);
 
-    // 2) Hide your radial menu and associated buttons (custom function in your code)
-    hide_radial_menu_and_buttons();
+    wifi_selected_ssid = String(selected_ssid);
+    Serial.printf("Selected SSID: %s\n", wifi_selected_ssid.c_str());
 
-    // 3) Create the password text area
-    lv_obj_t * password_box = lv_textarea_create(content_area);
-    if (!password_box) {
-        Serial.println("Error: Could not create password text area.");
-        show_radial_menu_and_buttons(); // re-show if error
-        return;
-    }
-    lv_textarea_set_one_line(password_box, true);
-    lv_textarea_set_password_mode(password_box, true);  // mask typed chars
-    lv_textarea_set_placeholder_text(password_box, "Enter password...");
-    lv_obj_align(password_box, LV_ALIGN_CENTER, 0, -50);
-
-   /*  // 4) Create the circular keyboard
-    lv_obj_t * ckb = mc_circular_keyboard_create(lv_scr_act(), 180); 
-    if (!ckb) {
-        Serial.println("Error: Failed to create circular keyboard.");
-        lv_obj_del(password_box);
-        show_radial_menu_and_buttons();
-        return;
-    }
-    mc_circular_keyboard_set_band_style(ckb, lv_color_hex(0x0078D7), 30); // Set band color and thickness
-        mc_circular_keyboard_set_style(ckb, lv_color_hex(0xFFFFFF), lv_color_hex(0x000000), false); // Set key styles
-    // 5) Attach the text area to the keyboard
-    mc_circular_keyboard_set_textarea(ckb, password_box);
-
-    // 6) The ring’s Close [X] => remove keyboard + password box => user cancels
-    //    Then re-show the radial menu
-  
-     mc_circular_keyboard_set_on_close(ckb, []() {
-            handle_keyboard_close(false); // Pass `false` for cancel
-        });
-    // 7) The ring’s OK => just remove keyboard, leaving the password box
-    //    Then re-show the radial menu so user can press a “Save” or “Connect” button
-  
-
-        // Set the "OK button" callback
-        mc_circular_keyboard_set_on_ok(ckb, []() {
-            handle_keyboard_close(true); // Pass `true` for OK
-        }); */
-
-    // 8) Optionally, create “Save” or “Connect” buttons
-    //    that read the password text area’s content:
-    lv_obj_t * save_btn = lv_btn_create(content_area);
-    if(save_btn) {
-        lv_obj_set_size(save_btn, 80, 40);
-        lv_obj_align(save_btn, LV_ALIGN_CENTER, -50, 80);
-        lv_obj_t * save_label = lv_label_create(save_btn);
-        lv_label_set_text(save_label, "Save");
-
-        // Provide user data so the callback can find the text area
-        lv_obj_add_event_cb(save_btn, [](lv_event_t * ev) {
-            lv_obj_t * btn = (lv_obj_t *) lv_event_get_target(ev);
-            lv_obj_t * pbox = (lv_obj_t *)lv_event_get_user_data(ev);
-            if(!pbox) return;
-
-            const char * pwd = lv_textarea_get_text(pbox);
-            Serial.printf("[SaveBtn] SSID password is: %s\n", pwd);
-
-            // do your saving logic, e.g. store password, or connect
-            // Then remove text area if done
-            lv_obj_del(pbox);
-            // remove the button
-            lv_obj_del(btn);
-
-            // re-show radial menu
-            show_radial_menu_and_buttons();
-        }, LV_EVENT_CLICKED, password_box);
-    }
-
-
-
-    // Create a connect button to connect directly
-    lv_obj_t *connect_btn = lv_btn_create(content_area);
-    if (connect_btn) {
-        lv_obj_set_size(connect_btn, 80, 40);
-        lv_obj_align(connect_btn, LV_ALIGN_CENTER, 50, 100);
-        lv_obj_t *connect_label = lv_label_create(connect_btn);
-        lv_label_set_text(connect_label, "Connect");
-        lv_obj_add_event_cb(connect_btn, connect_btn_cb, LV_EVENT_CLICKED, password_box);
-    }
-
+    wifi_build_selected_network_panel();
 }
-
-
-
 
 // Saved network selection callback
 void saved_network_selected_cb(lv_event_t *e) {
     const char *selected_ssid = (const char *)lv_event_get_user_data(e);
-    Serial.printf("Selected saved SSID: %s\n", selected_ssid);
+    if (!selected_ssid || selected_ssid[0] == '\0') {
+        Serial.println("Error: No saved SSID provided.");
+        return;
+    }
 
-    // Create an edit button to update password
-    lv_obj_t *edit_btn = lv_btn_create(content_area);
-    lv_obj_t *label = lv_label_create(edit_btn);
-    lv_label_set_text(label, "Edit");
-    lv_obj_align(edit_btn, LV_ALIGN_CENTER, -50, 100);
-    lv_obj_add_event_cb(edit_btn, edit_saved_network_event_cb, LV_EVENT_CLICKED, (void *)selected_ssid);
+    wifi_selected_ssid = String(selected_ssid);
+    Serial.printf("Selected saved SSID: %s\n", wifi_selected_ssid.c_str());
 
-    // Create a remove button
-    lv_obj_t *remove_btn = lv_btn_create(content_area);
-    lv_obj_t *remove_label = lv_label_create(remove_btn);
-    lv_label_set_text(remove_label, "Remove");
-    lv_obj_align(remove_btn, LV_ALIGN_CENTER, 50, 100);
-    lv_obj_add_event_cb(remove_btn, remove_saved_network_event_cb, LV_EVENT_CLICKED, (void *)selected_ssid);
+    wifi_build_selected_network_panel();
 }
 
 // Save new WiFi network event callback
 void save_wifi_network_event_cb(lv_event_t *e) {
     lv_obj_t *password_box = (lv_obj_t *)lv_event_get_user_data(e);
-    const char *ssid = WiFi.SSID(WiFi.scanComplete() - 1).c_str(); // Get the last scanned SSID
+    if (!password_box) {
+        password_box = wifi_password_textarea;
+    }
+
+    if (!password_box || wifi_selected_ssid.length() == 0) {
+        Serial.println("Save WiFi failed: missing password box or selected SSID.");
+        return;
+    }
+
     const char *password = lv_textarea_get_text(password_box);
+    addOrUpdateKnownWiFiNetwork(wifi_selected_ssid, String(password), true);
 
-    WiFiNetwork newNetwork;
-    newNetwork.ssid = String(ssid);
-    newNetwork.password = String(password);
+    currentSettings.wifi_ssid = wifi_selected_ssid;
+    currentSettings.wifi_ssd = wifi_selected_ssid;
+    currentSettings.wifi_pass = String(password);
 
-    currentSettings.known_wifi_networks.push_back(newNetwork);
     saveSettingsDataToFile("/settings.json", currentSettings);
 
-    Serial.printf("Saved SSID: %s\n", ssid);
-    scan_and_display_wifi_networks();
+    Serial.printf("Saved SSID: %s\n", wifi_selected_ssid.c_str());
+    wifi_set_status("Network saved");
+
+    wifi_build_selected_network_panel();
+
+    if (wifi_scan_ssids.empty()) {
+        wifi_render_known_networks_only();
+    } else {
+        wifi_render_network_list_from_scan();
+    }
 }
 
 // Edit saved network password event callback
 void edit_saved_network_event_cb(lv_event_t *e) {
     const char *selected_ssid = (const char *)lv_event_get_user_data(e);
-
-    // Create a text area to enter new password
-    lv_obj_t *password_box = lv_textarea_create(content_area);
-    lv_textarea_set_placeholder_text(password_box, "Enter new password...");
-    lv_obj_align(password_box, LV_ALIGN_CENTER, 0, 50);
-        // Create a keyboard to input the password
-    password_kb = lv_keyboard_create(lv_scr_act());
-    lv_obj_set_size(password_kb, 320, 240);
-    lv_keyboard_set_textarea(password_kb, password_box);
-    lv_obj_add_flag(ui_SettingsRadialMenu, LV_OBJ_FLAG_HIDDEN);
-    // Set up the event callback for the keyboard to detect when "OK" is pressed
-    lv_obj_add_event_cb(password_kb, [](lv_event_t *e) {
-        lv_obj_t *keyboard = (lv_obj_t *)lv_event_get_target(e);
-        lv_keyboard_mode_t mode = lv_keyboard_get_mode(keyboard);
-
-        // If the OK button is pressed, delete the keyboard and text area
-        if (lv_event_get_code(e) == LV_EVENT_READY) {
-            lv_obj_remove_flag(ui_SettingsRadialMenu, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_del(keyboard);  // Delete the keyboard
-            lv_obj_del(lv_keyboard_get_textarea(keyboard)); // Delete the text area
-        }
-    }, LV_EVENT_ALL, NULL);
-
-    // Create a save button to update password
-    lv_obj_t *save_btn = lv_btn_create(content_area);
-    lv_obj_t *label = lv_label_create(save_btn);
-    lv_label_set_text(label, "Save");
-    lv_obj_align(save_btn, LV_ALIGN_CENTER, 0, 100);
-    lv_obj_add_event_cb(save_btn, save_updated_password_event_cb, LV_EVENT_CLICKED, (void *)selected_ssid);
-}
-
-void save_updated_password_event_cb(lv_event_t * e) {
-    // Get the text from the password box
-    lv_obj_t * password_box = (lv_obj_t *)lv_event_get_target(e);
-    String new_password = lv_textarea_get_text(password_box);
-     lv_obj_remove_flag(ui_SettingsRadialMenu, LV_OBJ_FLAG_HIDDEN);
-    // Get the selected SSID from user data
-    const char * selected_ssid = (const char *)lv_event_get_user_data(e);
-
-    // Find the network in the list of known Wi-Fi networks and update the password
-    for (auto& network : currentSettings.known_wifi_networks) {
-        if (network.ssid == selected_ssid) {
-            network.password = new_password;
-            Serial.printf("Updated password for SSID: %s\n", selected_ssid);
-            break;
-        }
+    if (selected_ssid && selected_ssid[0] != '\0') {
+        wifi_selected_ssid = String(selected_ssid);
     }
 
-    // Save updated settings to the file
-    saveSettingsDataToFile("/settings.json", currentSettings);
+    if (wifi_selected_ssid.length() == 0) {
+        Serial.println("Edit WiFi failed: no selected SSID.");
+        return;
+    }
 
-    // Optionally, provide feedback to the user
-    lv_obj_t * msgbox = lv_msgbox_create(NULL);
-    lv_obj_center(msgbox);
-    lv_msgbox_add_title(msgbox, "Info");
-    lv_msgbox_add_text(msgbox, "Password Updated");
-    lv_msgbox_add_close_button(msgbox);
+    String title = "New password for ";
+    title += wifi_selected_ssid;
+
+    wifi_build_password_entry_panel(title.c_str(), true, true);
+}
+
+// This name is kept because it is declared in ui_Settings.h.
+// The real save path now goes through save_wifi_network_event_cb().
+void save_updated_password_event_cb(lv_event_t * e) {
+    save_wifi_network_event_cb(e);
 }
 
 // Remove saved WiFi network event callback
 void remove_saved_network_event_cb(lv_event_t *e) {
     const char *selected_ssid = (const char *)lv_event_get_user_data(e);
-    Serial.printf("Removing SSID: %s\n", selected_ssid);
+    if (selected_ssid && selected_ssid[0] != '\0') {
+        wifi_selected_ssid = String(selected_ssid);
+    }
 
-    auto &wifi_list = currentSettings.known_wifi_networks;
-    wifi_list.erase(
-        std::remove_if(wifi_list.begin(), wifi_list.end(),
-                       [selected_ssid](const WiFiNetwork &network) {
-                           return network.ssid == String(selected_ssid);
-                       }),
-        wifi_list.end());
+    if (wifi_selected_ssid.length() == 0) {
+        Serial.println("Remove WiFi failed: no selected SSID.");
+        return;
+    }
+
+    Serial.printf("Removing SSID: %s\n", wifi_selected_ssid.c_str());
+
+    removeKnownWiFiNetwork(wifi_selected_ssid);
+
+    if (currentSettings.wifi_ssid == wifi_selected_ssid) currentSettings.wifi_ssid = "";
+    if (currentSettings.wifi_ssd == wifi_selected_ssid) currentSettings.wifi_ssd = "";
+    if (WiFi.SSID() == wifi_selected_ssid) WiFi.disconnect(false);
 
     saveSettingsDataToFile("/settings.json", currentSettings);
-    scan_and_display_wifi_networks();
+
+    wifi_selected_ssid = "";
+    wifi_clear_action_panel();
+    wifi_set_status("Network forgotten");
+
+    if (wifi_scan_ssids.empty()) {
+        wifi_render_known_networks_only();
+    } else {
+        wifi_render_network_list_from_scan();
+    }
 }
 
 void connect_wifi_network_event_cb(lv_event_t * e) {
     lv_obj_t * password_box = (lv_obj_t *)lv_event_get_user_data(e);
-    String ssid = WiFi.SSID(WiFi.scanComplete() - 1); // Assuming the last scanned SSID is the one to connect to
-    String password = lv_textarea_get_text(password_box);
-     lv_obj_remove_flag(ui_SettingsRadialMenu, LV_OBJ_FLAG_HIDDEN);
-    // Attempt to connect to the network
-    Serial.printf("Attempting to connect to SSID: %s with password: %s\n", ssid.c_str(), password.c_str());
-    WiFi.begin(ssid.c_str(), password.c_str());
 
-    // Add additional connection status handling if needed
+    if (wifi_selected_ssid.length() == 0) {
+        Serial.println("Connect WiFi failed: no selected SSID.");
+        return;
+    }
+
+    String password;
+
+    if (password_box) {
+        password = String(lv_textarea_get_text(password_box));
+    }
+
+    if (password.length() == 0) {
+        int saved_index = findKnownWiFiNetworkIndex(wifi_selected_ssid);
+        if (saved_index >= 0) {
+            password = currentSettings.known_wifi_networks[saved_index].password;
+        }
+    }
+
+    if (password.length() == 0) {
+        wifi_build_password_entry_panel(wifi_selected_ssid.c_str(), true, true);
+        wifi_set_status("Password required");
+        return;
+    }
+
+    addOrUpdateKnownWiFiNetwork(wifi_selected_ssid, password, true);
+
+    currentSettings.wifi_ssid = wifi_selected_ssid;
+    currentSettings.wifi_ssd = wifi_selected_ssid;
+    currentSettings.wifi_pass = password;
+
+    saveSettingsDataToFile("/settings.json", currentSettings);
+
+    wifi_enable();
+
+    Serial.printf("Connecting to SSID: %s\n", wifi_selected_ssid.c_str());
+    WiFi.begin(wifi_selected_ssid.c_str(), password.c_str());
+
+    wifi_set_status("Connecting...");
+    wifi_build_selected_network_panel();
+
+    if (wifi_scan_ssids.empty()) {
+        wifi_render_known_networks_only();
+    } else {
+        wifi_render_network_list_from_scan();
+    }
 }
-
 
 // Display WiFi networks (saved and scanned)
 void scan_and_display_wifi_networks() {
     if (wifi_list == nullptr) {
         Serial.println("Error in scan & display networks: Wi-Fi list is not initialized.");
-       // return;
-    }
-    wifi_enable();
-    lv_obj_clean(wifi_list); // Clear previous content
-    lv_list_add_text(wifi_list, "Networks Discovered");
-    int networkCount = WiFi.scanNetworks();
-    if (networkCount == 0) {
-        lv_obj_t *list_btn = lv_list_add_btn(wifi_list, NULL, "No networks found");
-        lv_obj_add_state(list_btn, LV_STATE_DISABLED);
-    } else {
-        std::vector<String> savedSSIDs;
-
-        // Display scanned networks and identify saved networks
-        for (int i = 0; i < networkCount; ++i) {
-            const char *ssid = WiFi.SSID(i).c_str();
-            bool isSaved = false;
-
-            for (const auto &savedNetwork : currentSettings.known_wifi_networks) {
-                if (savedNetwork.ssid == ssid) {
-                    isSaved = true;
-                    savedSSIDs.push_back(savedNetwork.ssid);
-                    break;
-                }
-            }
-
-            // Create a list item for each network
-            lv_obj_t *list_btn = lv_list_add_button(wifi_list, NULL, ssid);
-            lv_obj_add_event_cb(list_btn, wifi_network_selected_cb, LV_EVENT_CLICKED, (void *)ssid);
-
-            // If the network is saved, mark it with a different color
-            if (isSaved) {
-                lv_obj_set_style_text_color(list_btn, lv_color_hex(0x41C7FF), 0); // Set a specific color
-            }
-        }
-
-        // Display saved networks that weren't found in the current scan
-        for (const auto &savedNetwork : currentSettings.known_wifi_networks) {
-            if (std::find(savedSSIDs.begin(), savedSSIDs.end(), savedNetwork.ssid) == savedSSIDs.end()) {
-                lv_obj_t *list_btn = lv_list_add_btn(wifi_list, NULL, savedNetwork.ssid.c_str());
-                lv_obj_add_event_cb(list_btn, saved_network_selected_cb, LV_EVENT_CLICKED, (void *)savedNetwork.ssid.c_str());
-                lv_obj_set_style_text_color(list_btn, lv_color_hex(0xAAAAAA), 0); // Greyed out to indicate it's not found
-            }
-        }
+        return;
     }
 
-    WiFi.scanDelete();
+    wifi_start_async_scan();
 }

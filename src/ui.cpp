@@ -10,7 +10,6 @@
 #include "ui_Power.h"
 #include "WeatherManager.h"
 #include "uiWeatherScreen.h"
-#include "ui_Settings.h"
 
 ///////////////////// DEFINITIONS //////////////////
 
@@ -200,7 +199,6 @@ void ui_init(void)
     ui_ClockScreen_screen_init();
     ui_MusicControls_screen_init();
     ui_Settings_screen_init();
-    ui_Settings_apply_compact_radial_layout();
     ui_Power_screen_init();
     ui_WeatherScreen_screen_init();
     ui____initial_actions0 = lv_obj_create(NULL);

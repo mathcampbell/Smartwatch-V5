@@ -333,15 +333,20 @@ static void wifi_scan_now_event_cb(lv_event_t * e)
 
 void create_content_area(void) {
     content_area = lv_obj_create(ui_Settings);
-    lv_obj_set_size(content_area, 240, 240); // Adjust size to avoid overlapping with symbols
+    lv_obj_set_size(content_area, 350, 350); // Adjust size to avoid overlapping with symbols
     lv_obj_center(content_area);
     lv_obj_add_flag(content_area, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(content_area, lv_color_white(), 0);
     lv_obj_set_style_radius(content_area, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_scrollbar_mode(content_area, LV_SCROLLBAR_MODE_AUTO);
 
-   // lv_obj_set_style_pad_all(content_area, 10, 0); // Add padding if needed
-
+  //  lv_obj_set_style_pad_all(content_area, 20, 0); // Add padding if needed
+lv_obj_set_style_pad_left(content_area, 16, LV_PART_MAIN);
+lv_obj_set_style_pad_right(content_area, 16, LV_PART_MAIN);
+lv_obj_set_style_pad_top(content_area, 18, LV_PART_MAIN);
+lv_obj_set_style_pad_bottom(content_area, 18, LV_PART_MAIN);
+lv_obj_set_style_pad_row(content_area, 4, LV_PART_MAIN);
+lv_obj_set_style_pad_column(content_area, 4, LV_PART_MAIN);
     
 }
 
@@ -380,6 +385,7 @@ void show_wifi_settings(void) {
 
     lv_obj_set_flex_flow(content_area, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(content_area, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(content_area, 20, 0);
 
     content_label = lv_label_create(content_area);
     lv_label_set_text(content_label, "Wi-Fi Settings");
@@ -399,7 +405,7 @@ void show_wifi_settings(void) {
 
     lv_obj_t * scan_btn = lv_btn_create(content_area);
     lv_obj_set_width(scan_btn, lv_pct(70));
-    lv_obj_set_height(scan_btn, 34);
+    lv_obj_set_height(scan_btn, 30);
     lv_obj_add_event_cb(scan_btn, wifi_scan_now_event_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t * scan_label = lv_label_create(scan_btn);
@@ -407,17 +413,18 @@ void show_wifi_settings(void) {
     lv_obj_center(scan_label);
 
     wifi_list = lv_list_create(content_area);
-    lv_obj_set_size(wifi_list, lv_pct(90), 115);
+    lv_obj_set_size(wifi_list, lv_pct(96), 110);
     lv_obj_set_style_pad_all(wifi_list, 4, 0);
 
     wifi_action_panel = lv_obj_create(content_area);
     lv_obj_set_width(wifi_action_panel, lv_pct(90));
-    lv_obj_set_height(wifi_action_panel, 125);
+    lv_obj_set_height(wifi_action_panel, 100);
     lv_obj_set_flex_flow(wifi_action_panel, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(wifi_action_panel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_scrollbar_mode(wifi_action_panel, LV_SCROLLBAR_MODE_AUTO);
     lv_obj_add_flag(wifi_action_panel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(wifi_action_panel, LV_OBJ_FLAG_HIDDEN);
+    
 
    if (wifi_is_enabled()) {
     if (WiFi.status() == WL_CONNECTED) {
@@ -506,7 +513,7 @@ void add_segment_buttons(void) {
 
     for (int i = 0; i < NUM_SEGMENTS; i++) {
         int mid_angle = i * angle_per_segment + angle_per_segment / 2;
-        int radius = 150; // Adjust radius to position the button within the segment
+        int radius = 200; // Adjust radius to position the button within the segment
         mid_angle -= 90;
         if (mid_angle <= 0) {
             mid_angle += 360;

@@ -49,11 +49,24 @@ void _ui_slider_set_property(lv_obj_t * target, int id, int val)
 }
 
 
-void _ui_screen_change(lv_obj_t ** target, lv_scr_load_anim_t fademode, int spd, int delay, void (*target_init)(void))
+/* void _ui_screen_change(lv_obj_t ** target, lv_scr_load_anim_t fademode, int spd, int delay, void (*target_init)(void)) // OLD UI_Screen_Change
 {
     if(*target == NULL)
         target_init();
     lv_scr_load_anim(*target, fademode, spd, delay, false);
+} */
+
+void _ui_screen_change(lv_obj_t ** target, lv_scr_load_anim_t fademode, int spd, int delay, void (*target_init)(void))
+{
+    (void)fademode;
+    (void)spd;
+    (void)delay;
+
+    if(*target == NULL) {
+        target_init();
+    }
+
+    lv_scr_load(*target);
 }
 
 void _ui_screen_delete(lv_obj_t ** target)

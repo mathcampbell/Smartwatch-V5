@@ -24,7 +24,7 @@ static constexpr int16_t WEATHER_CONTENT_Y_OFFSET = 14;
 
 // Segment arc occupies the upper visible ring only: roughly 8 o'clock to
 // 2 o'clock, avoiding the lower forecast panel area.
-static constexpr int16_t ARC_ROT = 150;
+static constexpr int16_t ARC_ROT = 180;
 
 static constexpr int16_t ARC_SWEEP = 180;
 
@@ -131,9 +131,9 @@ static String detail_line(const WeatherData& wd)
     String set = short_time_from_ctime(wd.sunset);
     if (rise.length() > 0 && set.length() > 0 && rise != "N/A" && set != "N/A") {
         if (out.length()) out += "\n";
-        out += "Sun ";
+        out += "Sunrise: ";
         out += rise;
-        out += " / ";
+        out += " Sunset: ";
         out += set;
     }
     if (out.length() == 0) out = "Weather details unavailable";

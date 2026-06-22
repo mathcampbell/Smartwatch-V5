@@ -146,7 +146,7 @@ void notifyUserInteraction()
   }
 }
 
-static void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
+/* static void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 {
   const int32_t w = lv_area_get_width(area);
   const int32_t h = lv_area_get_height(area);
@@ -172,6 +172,57 @@ static void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px
     gfx->draw16bitRGBBitmap(area->x1, area->y1 + y, dma_buf, w, lines);
   }
   gfx->endWrite();
+  lv_display_flush_ready(disp);
+} */
+
+static void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
+{
+  const uint32_t t0 = micros();
+
+  const int32_t w = lv_area_get_width(area);
+  const int32_t h = lv_area_get_height(area);
+  constexpr int32_t CHUNK_LINES = 20;
+
+  static uint16_t *dma_buf = nullptr;
+  if (!dma_buf) {
+    dma_buf = (uint16_t*)heap_caps_malloc(466 * CHUNK_LINES * sizeof(uint16_t),
+                                          MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+    if (!dma_buf) {
+      Serial.println("[LVGL] dma_buf alloc failed");
+      lv_display_flush_ready(disp);
+      return;
+    }
+  }
+
+  const uint16_t *src = (const uint16_t*)px_map;
+
+  gfx->startWrite();
+
+  for (int32_t y = 0; y < h; y += CHUNK_LINES) {
+    const int32_t lines = (y + CHUNK_LINES <= h) ? CHUNK_LINES : (h - y);
+    const int32_t count = w * lines;
+
+    memcpy(dma_buf, src + (y * w), count * sizeof(uint16_t));
+    gfx->draw16bitRGBBitmap(area->x1, area->y1 + y, dma_buf, w, lines);
+  }
+
+  gfx->endWrite();
+
+  const uint32_t dt = micros() - t0;
+
+  if (dt > 12000) {
+    Serial.printf(
+      "[LVGL] flush %ldx%ld at (%ld,%ld)-(%ld,%ld): %lu us\n",
+      (long)w,
+      (long)h,
+      (long)area->x1,
+      (long)area->y1,
+      (long)area->x2,
+      (long)area->y2,
+      (unsigned long)dt
+    );
+  }
+
   lv_display_flush_ready(disp);
 }
 
@@ -558,7 +609,7 @@ if (!weather_job_active && ((currentTime - last_weather_update >= 360000) || che
   }
 }
 
-lvgl_lock();
+/* lvgl_lock();
 switch (wifi_manager_state()) {
   case WIFI_MGR_CONNECTING: {
     const bool on = ((millis() / 400) % 2) == 0;
@@ -594,7 +645,59 @@ switch (wifi_manager_state()) {
     );
     break;
 }
-lvgl_unlock();
+lvgl_unlock(); */
+
+static WifiMgrState lastWifiUiState = (WifiMgrState)255;
+static bool lastWifiBlinkOn = false;
+static uint32_t lastWifiUiColour = 0xFFFFFFFF;
+
+const WifiMgrState currentWifiUiState = wifi_manager_state();
+const bool wifiBlinkOn = ((millis() / 400) % 2) == 0;
+
+uint32_t wantedWifiColour = 0x005578;
+
+switch (currentWifiUiState) {
+  case WIFI_MGR_CONNECTING:
+    wantedWifiColour = wifiBlinkOn ? 0x41C7FF : 0x005578;
+    break;
+
+  case WIFI_MGR_CONNECTED:
+    wantedWifiColour = 0x41C7FF;
+    break;
+
+  case WIFI_MGR_FAILED:
+    wantedWifiColour = 0x9A3442;
+    break;
+
+  case WIFI_MGR_OFF:
+  case WIFI_MGR_IDLE:
+  default:
+    wantedWifiColour = 0x005578;
+    break;
+}
+
+const bool wifiUiNeedsUpdate =
+  (currentWifiUiState != lastWifiUiState) ||
+  (currentWifiUiState == WIFI_MGR_CONNECTING && wifiBlinkOn != lastWifiBlinkOn) ||
+  (wantedWifiColour != lastWifiUiColour);
+
+if (wifiUiNeedsUpdate) {
+  lastWifiUiState = currentWifiUiState;
+  lastWifiBlinkOn = wifiBlinkOn;
+  lastWifiUiColour = wantedWifiColour;
+
+  lvgl_lock();
+
+  if (ui_WiFiLabel) {
+    lv_obj_set_style_text_color(
+      ui_WiFiLabel,
+      lv_color_hex(wantedWifiColour),
+      LV_PART_MAIN | LV_STATE_DEFAULT
+    );
+  }
+
+  lvgl_unlock();
+}
 
   if (weather_job_active && wifi_manager_is_connected() && !weather_ran_once) {
     weather_ran_once = true;
@@ -626,8 +729,23 @@ lvgl_unlock();
     weather_job_active = false;
     wifi_manager_disconnect(true);
   }
-
+/* 
   lvgl_lock();
   ui_WeatherScreen_tick();
-  lvgl_unlock();
+  lvgl_unlock(); */
+
+static uint32_t lastWeatherUiTickMs = 0;
+
+if (ui_WeatherScreen && lv_screen_active() == ui_WeatherScreen) {
+  const uint32_t weatherUiNow = millis();
+
+  if (weatherUiNow - lastWeatherUiTickMs >= 1000) {
+    lastWeatherUiTickMs = weatherUiNow;
+
+    lvgl_lock();
+    ui_WeatherScreen_tick();
+    lvgl_unlock();
+  }
+}
+
 }

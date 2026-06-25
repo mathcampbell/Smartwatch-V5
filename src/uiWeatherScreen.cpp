@@ -80,6 +80,7 @@ static String s_lastForecastSignature;
 
 static const char* pick_bg(uint16_t id, const String& icon);
 static void set_shadow_label_text(lv_obj_t* shadow, lv_obj_t* main_lbl);
+static int weather_segment_from_value(int arcvalue);
 static void weather_arc_value_changed(lv_event_t* e);
 static void weather_arc_released(lv_event_t* e);
 static void weather_arc_draw(lv_event_t* e);
@@ -226,22 +227,29 @@ void ui_WeatherScreen_screen_init(void)
     lv_obj_set_style_border_width(s_forecastPanel, 0, 0);
     lv_obj_clear_flag(s_forecastPanel, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_arc = lv_arc_create(ui_WeatherScreen);
-    lv_obj_set_size(s_arc, SCR_W, SCR_H);
-    lv_obj_center(s_arc);
-    lv_arc_set_rotation(s_arc, ARC_ROT);
-    lv_arc_set_bg_angles(s_arc, 0, ARC_SWEEP);
-    lv_arc_set_range(s_arc, 0, SEG_COUNT - 1);
-    lv_arc_set_value(s_arc, SEG_COUNT - 1);
-    lv_obj_clear_flag(s_arc, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_arc_opa(s_arc, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_arc_opa(s_arc, LV_OPA_TRANSP, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(s_arc, LV_OPA_TRANSP, LV_PART_KNOB);
-    lv_obj_set_style_pad_all(s_arc, 0, 0);
-    lv_obj_add_event_cb(s_arc, weather_arc_value_changed, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_add_event_cb(s_arc, weather_arc_released, LV_EVENT_RELEASED, NULL);
-    lv_obj_add_event_cb(s_arc, weather_arc_released, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(s_arc, weather_arc_draw, LV_EVENT_DRAW_MAIN, NULL);
+ s_arc = lv_arc_create(ui_WeatherScreen);
+lv_obj_set_size(s_arc, SCR_W, SCR_H);
+lv_obj_center(s_arc);
+
+lv_arc_set_rotation(s_arc, ARC_ROT);
+lv_arc_set_bg_angles(s_arc, 0, ARC_SWEEP);
+lv_arc_set_range(s_arc, 0, ARC_RANGE_MAX);
+lv_arc_set_value(s_arc, 450);
+
+lv_arc_set_start_angle(s_arc, ARC_ROT + (4 * (ARC_SWEEP / SEG_COUNT)));
+lv_arc_set_end_angle(s_arc, ARC_ROT + (5 * (ARC_SWEEP / SEG_COUNT)));
+
+lv_obj_clear_flag(s_arc, LV_OBJ_FLAG_SCROLLABLE);
+lv_obj_add_flag(s_arc, LV_OBJ_FLAG_CLICKABLE);
+
+lv_obj_set_style_arc_opa(s_arc, LV_OPA_TRANSP, LV_PART_MAIN);
+lv_obj_set_style_arc_opa(s_arc, LV_OPA_TRANSP, LV_PART_INDICATOR);
+lv_obj_set_style_bg_opa(s_arc, LV_OPA_TRANSP, LV_PART_KNOB);
+lv_obj_set_style_pad_all(s_arc, 0, 0);
+
+lv_obj_add_event_cb(s_arc, weather_arc_value_changed, LV_EVENT_VALUE_CHANGED, NULL);
+lv_obj_add_event_cb(s_arc, weather_arc_released, LV_EVENT_RELEASED, NULL);
+lv_obj_add_event_cb(s_arc, weather_arc_draw, LV_EVENT_DRAW_MAIN, NULL);
 
     s_locationLabel = lv_label_create(ui_WeatherScreen);
     lv_obj_set_width(s_locationLabel, 310);
@@ -420,30 +428,78 @@ void ui_WeatherScreen_tick(void)
     for (uint8_t i = 0; i < FORECAST_COUNT; ++i) set_forecast_slot(i, (i < count) ? &days[i] : nullptr);
 }
 
+static int weather_segment_from_value(int arcvalue)
+{
+    if (arcvalue < 0) {
+        return 0;
+    }
+
+    if (arcvalue >= ARC_RANGE_MAX) {
+        return SEG_COUNT - 1;
+    }
+
+    int seg = arcvalue / SEG_SIZE;
+
+    if (seg < 0) {
+        seg = 0;
+    }
+
+    if (seg >= SEG_COUNT) {
+        seg = SEG_COUNT - 1;
+    }
+
+    return seg;
+}
+
 static void weather_arc_value_changed(lv_event_t* e)
 {
     lv_obj_t* arc = lv_event_get_target_obj(e);
-    int v = (int)lv_arc_get_value(arc);
-    if(v < 0) v = 0;
-    if(v >= SEG_COUNT) v = SEG_COUNT - 1;
-    if(lv_arc_get_value(arc) != v) {
-        lv_arc_set_value(arc, v);
-        return;
-    }
+
+    const int arcvalue = (int)lv_arc_get_value(arc);
+    const int seg = weather_segment_from_value(arcvalue);
+
+    const int section_angle = ARC_SWEEP / SEG_COUNT;
+    const int indicator_start_angle = ARC_ROT + (seg * section_angle);
+    const int indicator_end_angle = ARC_ROT + ((seg + 1) * section_angle);
+
+    lv_arc_set_start_angle(arc, indicator_start_angle);
+    lv_arc_set_end_angle(arc, indicator_end_angle);
+
     lv_obj_invalidate(arc);
 }
 
 static void weather_arc_released(lv_event_t* e)
 {
     lv_obj_t* arc = lv_event_get_target_obj(e);
-    int seg = (int)lv_arc_get_value(arc);
+
+    const int arcvalue = (int)lv_arc_get_value(arc);
+    const int seg = weather_segment_from_value(arcvalue);
+
+    const int midpoint = (seg * SEG_SIZE) + (SEG_SIZE / 2);
+    lv_arc_set_value(arc, midpoint);
+    lv_obj_send_event(arc, LV_EVENT_VALUE_CHANGED, NULL);
+
     switch(seg) {
-        case 0: _ui_screen_change(&ui_MainScreen, LV_SCR_LOAD_ANIM_NONE, 0, 0, ui_MainScreen_screen_init); break;
-        case 1: _ui_screen_change(&ui_ClockScreen, LV_SCR_LOAD_ANIM_NONE, 0, 0, ui_ClockScreen_screen_init); break;
-        case 2: _ui_screen_change(&ui_MusicControls, LV_SCR_LOAD_ANIM_NONE, 0, 0, ui_MusicControls_screen_init); break;
-        case 3: _ui_screen_change(&ui_Settings, LV_SCR_LOAD_ANIM_NONE, 0, 0, ui_Settings_screen_init); break;
+        case 0:
+            _ui_screen_change(&ui_MainScreen, LV_SCR_LOAD_ANIM_NONE, 0, 0, ui_MainScreen_screen_init);
+            break;
+
+        case 1:
+            _ui_screen_change(&ui_ClockScreen, LV_SCR_LOAD_ANIM_NONE, 0, 0, ui_ClockScreen_screen_init);
+            break;
+
+        case 2:
+            _ui_screen_change(&ui_MusicControls, LV_SCR_LOAD_ANIM_NONE, 0, 0, ui_MusicControls_screen_init);
+            break;
+
+        case 3:
+            _ui_screen_change(&ui_Settings, LV_SCR_LOAD_ANIM_NONE, 0, 0, ui_Settings_screen_init);
+            break;
+
         case 4:
-        default: return;
+        default:
+            // Already on Weather.
+            break;
     }
 }
 
@@ -494,17 +550,26 @@ static void weather_arc_draw(lv_event_t* e)
 {
     lv_obj_t* obj = lv_event_get_target_obj(e);
     lv_layer_t* layer = lv_event_get_layer(e);
-    if(!layer) return;
+
+    if(!layer) {
+        return;
+    }
+
     lv_area_t a;
     lv_obj_get_coords(obj, &a);
+
     const int32_t w = lv_area_get_width(&a);
     const int32_t h = lv_area_get_height(&a);
     const int32_t cx = a.x1 + w / 2;
     const int32_t cy = a.y1 + h / 2;
     const int32_t r = (LV_MIN(w, h) / 2) - (RING_W / 2) - 1;
-    const int sel = (int)lv_arc_get_value(obj);
+
+    const int arcvalue = (int)lv_arc_get_value(obj);
+    const int selected = weather_segment_from_value(arcvalue);
+
     lv_draw_arc_dsc_t base;
     lv_draw_arc_dsc_init(&base);
+
     base.center.x = (lv_coord_t)cx;
     base.center.y = (lv_coord_t)cy;
     base.radius = (lv_coord_t)r;
@@ -512,18 +577,23 @@ static void weather_arc_draw(lv_event_t* e)
     base.opa = LV_OPA_80;
     base.color = lv_color_hex(0x0B111A);
     base.rounded = 0;
+
     lv_draw_arc_dsc_t hi = base;
     hi.opa = LV_OPA_COVER;
     hi.color = lv_color_hex(0x2A9DFF);
+
     const int32_t seg_span = ARC_SWEEP / SEG_COUNT;
     const int32_t gap = SEG_GAP_DEG;
+
     for(int i = 0; i < SEG_COUNT; i++) {
-        int32_t start = ARC_ROT + (i * seg_span) + (gap / 2);
-        int32_t end = ARC_ROT + ((i + 1) * seg_span) - (gap / 2);
+        const int32_t start = ARC_ROT + (i * seg_span) + (gap / 2);
+        const int32_t end = ARC_ROT + ((i + 1) * seg_span) - (gap / 2);
+
         base.start_angle = start;
         base.end_angle = end;
         lv_draw_arc(layer, &base);
-        if(i == sel) {
+
+        if(i == selected) {
             hi.start_angle = start;
             hi.end_angle = end;
             lv_draw_arc(layer, &hi);
